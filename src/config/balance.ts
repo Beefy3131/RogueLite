@@ -19,6 +19,8 @@ export const WORLD = {
 /** Camera behavior. */
 export const CAMERA = {
   followLerp: 0.12,
+  /** <1 zooms out (0.8 shows 25% more world per axis) — more reaction time. */
+  zoom: 0.8,
 } as const;
 
 /** Floating virtual joystick (spec §12). */
@@ -71,6 +73,26 @@ export const WEAPON_BASE = {
   },
   lightning: { damage: 18, cooldown: 2.5, strikes: 1, chainRadius: 120, chainDamageFraction: 0.5 },
   boomerang: { damage: 12, cooldown: 1.5, pierce: Infinity, speed: 380, range: 300 },
+  fireball: {
+    damage: 14,
+    cooldown: 1.6,
+    projectileSpeed: 320,
+    burnTickFraction: 0.3, // burn tick = fraction of (multiplied) hit damage
+    burnDurationMs: 3000,
+  },
+  venom: {
+    damage: 6,
+    cooldown: 0.9,
+    projectileSpeed: 480,
+    poisonTickFraction: 0.6,
+    poisonDurationMs: 4000,
+    maxStacks: 3, // poison tick damage caps at 3 stacked hits
+  },
+} as const;
+
+/** Damage-over-time effects (burn/poison) tick on this shared clock. */
+export const DOT = {
+  tickMs: 500,
 } as const;
 
 /** Enemy spawn-time base stats, before time-scaling (spec §10). */
@@ -79,10 +101,12 @@ export const ENEMY_BASE = {
   // at 12 the best possible minute-one kill rate is half the spawn rate and
   // the opener snowballs unfairly. Time-scaling puts them back to 2 hits by
   // ~2:00, when the first upgrades have landed.
-  swarmer: { hp: 10, damage: 6, speed: 90, xp: 1, radius: 8 },
-  runner: { hp: 8, damage: 5, speed: 160, xp: 1, radius: 7 },
+  // Small-enemy radii bumped (8/7/6/5 → 10/9/8/7): with the zoomed-out camera
+  // the old bodies were so small that projectiles whiffed through visual hits.
+  swarmer: { hp: 10, damage: 6, speed: 90, xp: 1, radius: 10 },
+  runner: { hp: 8, damage: 5, speed: 160, xp: 1, radius: 9 },
   brute: { hp: 60, damage: 14, speed: 55, xp: 2, radius: 14 },
-  bat: { hp: 6, damage: 4, speed: 130, xp: 1, radius: 6 }, // erratic weave
+  bat: { hp: 6, damage: 4, speed: 130, xp: 1, radius: 8 }, // erratic weave
   shooter: {
     hp: 18,
     damage: 8, // projectile damage
@@ -94,7 +118,7 @@ export const ENEMY_BASE = {
     projectileSpeed: 180,
   },
   splitter: { hp: 20, damage: 6, speed: 80, xp: 2, radius: 10, minisPerSplit: 2 },
-  mini: { hp: 6, damage: 4, speed: 110, xp: 1, radius: 5 }, // splitter offspring
+  mini: { hp: 6, damage: 4, speed: 110, xp: 1, radius: 7 }, // splitter offspring
   exploder: { hp: 15, damage: 20, speed: 110, xp: 1, radius: 9, blastRadius: 70 }, // damage = blast
   ghost: { hp: 14, damage: 7, speed: 100, xp: 2, radius: 8 }, // ignores props
   shielded: { hp: 45, damage: 10, speed: 65, xp: 3, radius: 10, frontResist: 0.7 },
@@ -185,7 +209,7 @@ export const TIME_SCALING = {
 
 /** Projectile shared tuning. */
 export const PROJECTILE = {
-  radius: 4,
+  radius: 6, // generous hit circle — small fast enemies were slipping through at 4
   lifetimeMs: 1500, // despawn if nothing was hit
 } as const;
 
@@ -221,6 +245,18 @@ export const SPAWN = {
   bossMinutes: [5, 10, 15, 20],
   /** Enemies spawn in a ring just outside the camera, spread around all sides. */
   spawnRingPadding: 64, // px beyond camera bounds
+} as const;
+
+/** Loot chests: spawn near the player on a jittered timer, opened on touch. */
+export const CHESTS = {
+  firstAtSeconds: 45,
+  intervalSeconds: 75,
+  jitterSeconds: 20, // ± on each interval
+  minGold: 20,
+  maxGold: 80,
+  upgradeChance: 0.65, // chance the chest also grants a random weapon/passive level
+  spawnDistanceMin: 350, // px from the player
+  spawnDistanceMax: 650,
 } as const;
 
 /** Gold economy (spec §11). All earning is scaled by the Greed multiplier. */
@@ -275,13 +311,77 @@ export const SLOTS = {
 export const COLLISION = {
   cellSize: 64, // px
   playerRadius: 12,
-  enemyRadius: 8,
+  enemyRadius: 10, // query-slop baseline; per-enemy bodyRadius decides actual hits
 } as const;
 
 /** Off-screen culling (spec §2 item 5). */
 export const CULLING = {
   margin: 128, // px beyond camera bounds before an enemy is culled
   offscreenRetargetMs: 250, // culled enemies re-aim this often instead of every frame
+} as const;
+
+/**
+ * Character ultimates: charged by kills, fired with SPACE (desktop) or the
+ * bottom-right HUD button (mobile). Effects scale with the run level L.
+ */
+export const ULTIMATE = {
+  killsToCharge: 40,
+  buttonSize: 76, // HUD tap target diameter (≥ minTapTargetPx)
+  buttonMargin: 18, // from the bottom-right screen corner
+  /** Touches this close to the bottom-right corner belong to the ult button, not the joystick. */
+  joystickExcludePx: 130,
+} as const;
+
+export const ULT_DEFS = {
+  ranger: {
+    name: 'Arrow Storm',
+    desc: 'Volley of arrows for 5s',
+    durationMs: 5000,
+    volleyIntervalMs: 180,
+    arrowsPerVolley: 3,
+    damage: 12,
+    damagePerLevel: 1.5,
+    projectileSpeed: 520,
+  },
+  brute: {
+    name: 'Unbreakable',
+    desc: 'Invincible for a few seconds',
+    durationMs: 4000,
+    durationPerLevelMs: 150,
+    maxDurationMs: 9000,
+  },
+  dasher: {
+    name: 'Overdrive',
+    desc: '+60% move speed for 10s',
+    durationMs: 10000,
+    speedMult: 1.6,
+    speedMultPerLevel: 0.01,
+  },
+  warden: {
+    name: 'Soul Harvest',
+    desc: 'Kills heal you for 8s',
+    durationMs: 8000,
+    healPerKill: 2,
+    healPerLevel: 0.4,
+  },
+  conjurer: {
+    name: 'Summon Wisp',
+    desc: 'A wisp fights beside you for 10s',
+    durationMs: 10000,
+    fireIntervalMs: 400,
+    damage: 12,
+    damagePerLevel: 1.5,
+    range: 340,
+    projectileSpeed: 460,
+  },
+  bomber: {
+    name: 'Nova',
+    desc: 'Explosion bursts out from you',
+    radius: 200,
+    radiusPerLevel: 4,
+    damage: 55,
+    damagePerLevel: 6,
+  },
 } as const;
 
 /** UI conventions (spec §13). */

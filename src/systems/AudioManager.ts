@@ -11,7 +11,9 @@ export type SfxKey =
   | 'purchase'
   | 'revive'
   | 'victory'
-  | 'defeat';
+  | 'defeat'
+  | 'ult-ready'
+  | 'ult-fire';
 
 /** Per-key minimum ms between plays — enemy deaths must not machine-gun (spec §14). */
 const THROTTLE_MS: Partial<Record<SfxKey, number>> = {
@@ -137,6 +139,14 @@ export class AudioManager {
       case 'defeat':
         this.tone(300, 420, 'sawtooth', { to: 150, gain: 0.14 });
         this.tone(200, 500, 'sawtooth', { delayMs: 150, to: 90, gain: 0.12 });
+        break;
+      case 'ult-ready':
+        this.tone(660, 90, 'sine', { to: 1320, gain: 0.09 });
+        this.tone(1320, 150, 'sine', { delayMs: 90, gain: 0.07 });
+        break;
+      case 'ult-fire':
+        this.tone(150, 320, 'sawtooth', { to: 55, gain: 0.2 });
+        this.tone(500, 140, 'square', { to: 950, gain: 0.07 });
         break;
     }
   }

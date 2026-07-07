@@ -23,6 +23,8 @@ export interface ProjectileConfig {
   player?: Player | null;
   /** Boomerang: outbound distance. */
   range?: number;
+  /** Called for each enemy hit (after damage) — Fireball burn / Venom poison. */
+  onHit?: (enemy: Enemy) => void;
 }
 
 /**
@@ -41,6 +43,7 @@ export class Projectile extends Phaser.Physics.Arcade.Sprite {
   private flightMs = 0;
   private returning = false;
   private done = false;
+  private onHit: ((enemy: Enemy) => void) | null = null;
   private readonly alreadyHit: Enemy[] = [];
   private readonly queryBuffer: Enemy[] = [];
 
@@ -67,6 +70,7 @@ export class Projectile extends Phaser.Physics.Arcade.Sprite {
     this.flightMs = 0;
     this.returning = false;
     this.done = false;
+    this.onHit = cfg.onHit ?? null;
     this.alreadyHit.length = 0;
     // Outbound leg: average speed is speed/2 while decelerating to zero.
     this.outTimeMs = cfg.range !== undefined ? (cfg.range / (cfg.speed / 2)) * 1000 : 0;
@@ -77,6 +81,7 @@ export class Projectile extends Phaser.Physics.Arcade.Sprite {
     this.disableBody(true, true);
     this.grid = null;
     this.player = null;
+    this.onHit = null;
   }
 
   private finish(): void {
@@ -162,6 +167,7 @@ export class Projectile extends Phaser.Physics.Arcade.Sprite {
 
       this.alreadyHit.push(enemy);
       enemy.takeDamage(this.damage, this.x, this.y);
+      if (enemy.active) this.onHit?.(enemy);
       if (this.mode !== 'boomerang') {
         if (this.pierceLeft <= 0) {
           this.finish();

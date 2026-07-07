@@ -93,17 +93,19 @@ export class PreloadScene extends Phaser.Scene {
       g.clear();
     };
 
-    circleEnemy('enemy-swarmer', 8, 0xef5350, 0xb71c1c);
-    circleEnemy('enemy-runner', 7, 0xffa726, 0xe65100);
+    // Small-enemy sprites match their bumped ENEMY_BASE radii (readability +
+    // hit reliability at the zoomed-out camera).
+    circleEnemy('enemy-swarmer', 10, 0xef5350, 0xb71c1c);
+    circleEnemy('enemy-runner', 9, 0xffa726, 0xe65100);
     squareEnemy('enemy-brute', 28, 0x8e2424, 0x5c1010);
     // Bat: violet diamond.
     g.fillStyle(0xab47bc, 1);
-    g.fillPoints([{ x: 6, y: 0 }, { x: 12, y: 6 }, { x: 6, y: 12 }, { x: 0, y: 6 }], true);
-    g.generateTexture('enemy-bat', 12, 12);
+    g.fillPoints([{ x: 8, y: 0 }, { x: 16, y: 8 }, { x: 8, y: 16 }, { x: 0, y: 8 }], true);
+    g.generateTexture('enemy-bat', 16, 16);
     g.clear();
     squareEnemy('enemy-shooter', 18, 0x26c6da, 0x00838f);
     circleEnemy('enemy-splitter', 10, 0xf06292, 0xc2185b);
-    circleEnemy('enemy-mini', 5, 0xf48fb1);
+    circleEnemy('enemy-mini', 7, 0xf48fb1);
     circleEnemy('enemy-exploder', 9, 0xff7043, 0xffeb3b); // yellow core = telegraphed danger
     circleEnemy('enemy-ghost', 8, 0xb3e5fc, undefined, 0.6);
     // Shielded: grey square with a white shield stripe on its front (right) edge.
@@ -266,6 +268,33 @@ export class PreloadScene extends Phaser.Scene {
     g.fillStyle(0xffd54f, 1);
     g.fillRect(8, 5, 2, 8);
     g.generateTexture('pickup-gold', 18, 18);
+    g.clear();
+
+    // Fireball: orange orb with a bright core.
+    g.fillStyle(0xff7043, 1);
+    g.fillCircle(7, 7, 7);
+    g.fillStyle(0xffe082, 1);
+    g.fillCircle(7, 7, 3.5);
+    g.generateTexture('projectile-fireball', 14, 14);
+    g.clear();
+
+    // Venom dart: green sliver (points right; rotated to flight direction).
+    g.fillStyle(0x9ccc65, 1);
+    g.fillRect(0, 2, 12, 4);
+    g.fillStyle(0x33691e, 1);
+    g.fillRect(8, 2, 4, 4);
+    g.generateTexture('projectile-venom', 12, 8);
+    g.clear();
+
+    // Loot chest: brown box, gold band + clasp.
+    g.fillStyle(0x6d4c41, 1);
+    g.fillRect(0, 4, 24, 16);
+    g.fillStyle(0x8d6e63, 1);
+    g.fillRect(0, 0, 24, 6);
+    g.fillStyle(0xffd54f, 1);
+    g.fillRect(10, 0, 4, 20);
+    g.fillRect(8, 9, 8, 5);
+    g.generateTexture('pickup-chest', 24, 20);
     g.clear();
 
     // Virtual joystick: base ring + thumb puck.

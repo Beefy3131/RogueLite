@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME, PLAYER, UI, XP } from '../config/balance';
+import { GAME, PLAYER, UI, ULTIMATE, XP } from '../config/balance';
 import { Bar } from '../ui/Bar';
 
 /**
@@ -96,6 +96,59 @@ export class HUDScene extends Phaser.Scene {
       .setVisible(false);
 
     const game = this.scene.get('Game');
+
+    // --- Ultimate button (bottom-right): charge ring, tap or SPACE to fire ---
+    const r = ULTIMATE.buttonSize / 2;
+    const ultButton = this.add.container(
+      GAME.width - ULTIMATE.buttonMargin - r,
+      GAME.height - ULTIMATE.buttonMargin - r,
+    );
+    const ultBg = this.add.circle(0, 0, r, 0x23234a, 0.85).setStrokeStyle(2, 0x4a4a8a);
+    const ultArc = this.add.graphics();
+    const ultLabel = this.add
+      .text(0, 0, 'ULT', {
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '15px',
+        fontStyle: 'bold',
+        color: UI.colors.dimCss,
+      })
+      .setOrigin(0.5);
+    ultButton.add([ultBg, ultArc, ultLabel]);
+    if (!this.sys.game.device.input.touch) {
+      // Desktop hint under the button; touch users just tap it.
+      this.add
+        .text(ultButton.x, ultButton.y + r + 12, 'SPACE', {
+          fontFamily: 'Arial, sans-serif',
+          fontSize: '10px',
+          color: UI.colors.dimCss,
+        })
+        .setOrigin(0.5);
+    }
+    let ultPulse: Phaser.Tweens.Tween | null = null;
+    const onUlt = (charge: number, ready: boolean, activeFrac: number) => {
+      ultArc.clear();
+      const frac = activeFrac > 0 ? activeFrac : charge;
+      const color = activeFrac > 0 ? 0xffd54f : ready ? UI.colors.accent : 0x40c4ff;
+      if (frac > 0) {
+        ultArc.lineStyle(5, color, 1);
+        ultArc.beginPath();
+        ultArc.arc(0, 0, r - 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, frac));
+        ultArc.strokePath();
+      }
+      ultBg.setStrokeStyle(2, ready ? UI.colors.accent : 0x4a4a8a);
+      ultLabel
+        .setText(activeFrac > 0 ? '...' : ready ? 'ULT!' : 'ULT')
+        .setColor(ready ? UI.colors.accentCss : activeFrac > 0 ? '#ffd54f' : UI.colors.dimCss);
+      if (ready && !ultPulse) {
+        ultPulse = this.tweens.add({ targets: ultButton, scale: 1.12, duration: 420, yoyo: true, repeat: -1 });
+      } else if (!ready && ultPulse) {
+        ultPulse.stop();
+        ultPulse = null;
+        ultButton.setScale(1);
+      }
+    };
+    ultBg.setInteractive({ useHandCursor: true }).on('pointerdown', () => game.events.emit('ult-pressed'));
+
     const onHP = (hp: number, max: number) => {
       this.hpBar.set(hp / max);
       this.hpText.setText(`${Math.ceil(hp)}/${max}`);
@@ -134,7 +187,9 @@ export class HUDScene extends Phaser.Scene {
     game.events.on('hud-boss', onBoss);
     game.events.on('boss-spawned', onBossSpawned);
     game.events.on('hud-boss-off', onBossOff);
+    game.events.on('hud-ult', onUlt);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      game.events.off('hud-ult', onUlt);
       game.events.off('hud-hp', onHP);
       game.events.off('hud-xp', onXP);
       game.events.off('hud-time', onTime);
@@ -147,7 +202,13 @@ export class HUDScene extends Phaser.Scene {
     });
 
     // Seed from current state (HUD launches after the run starts).
-    const g = game as Phaser.Scene & { xp: number; xpForNext: number; level: number };
+    const g = game as Phaser.Scene & {
+      xp: number;
+      xpForNext: number;
+      level: number;
+      ultimate?: { chargeFraction: number; ready: boolean };
+    };
     onXP(g.xp ?? 0, g.xpForNext ?? XP.xpForLevel(1), g.level ?? 1);
+    onUlt(g.ultimate?.chargeFraction ?? 0, g.ultimate?.ready ?? false, 0);
   }
 }

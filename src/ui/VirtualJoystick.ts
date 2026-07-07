@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { JOYSTICK } from '../config/balance';
+import { CAMERA, GAME, JOYSTICK, ULTIMATE } from '../config/balance';
 
 /**
  * Floating virtual joystick (spec §12): appears wherever the thumb touches,
@@ -12,20 +12,28 @@ export class VirtualJoystick {
   isActive = false;
 
   private pointerId = -1;
+  private downX = 0;
+  private downY = 0;
   private readonly base: Phaser.GameObjects.Image;
   private readonly thumb: Phaser.GameObjects.Image;
 
   constructor(scene: Phaser.Scene) {
+    // Camera zoom scales scrollFactor-0 objects around the screen center, so
+    // counter-scale the art and place it through toRenderX/Y to stay under
+    // the finger.
+    const invZoom = 1 / CAMERA.zoom;
     this.base = scene.add
       .image(0, 0, 'joy-base')
       .setScrollFactor(0)
       .setDepth(1000)
+      .setScale(invZoom)
       .setAlpha(JOYSTICK.baseAlpha)
       .setVisible(false);
     this.thumb = scene.add
       .image(0, 0, 'joy-thumb')
       .setScrollFactor(0)
       .setDepth(1001)
+      .setScale(invZoom)
       .setAlpha(JOYSTICK.thumbAlpha)
       .setVisible(false);
 
@@ -34,24 +42,46 @@ export class VirtualJoystick {
     scene.input.on('pointerup', this.onUp, this);
   }
 
+  /** Screen point → the position that renders there under the camera zoom. */
+  private toRenderX(x: number): number {
+    return GAME.width / 2 + (x - GAME.width / 2) / CAMERA.zoom;
+  }
+
+  private toRenderY(y: number): number {
+    return GAME.height / 2 + (y - GAME.height / 2) / CAMERA.zoom;
+  }
+
   private onDown(pointer: Phaser.Input.Pointer): void {
     if (this.isActive || !pointer.wasTouch) return;
+    // Bottom-right corner belongs to the ultimate button (HUD scene).
+    if (
+      pointer.x > GAME.width - ULTIMATE.joystickExcludePx &&
+      pointer.y > GAME.height - ULTIMATE.joystickExcludePx
+    ) {
+      return;
+    }
     this.isActive = true;
     this.pointerId = pointer.id;
-    this.base.setPosition(pointer.x, pointer.y).setVisible(true);
-    this.thumb.setPosition(pointer.x, pointer.y).setVisible(true);
+    this.downX = pointer.x;
+    this.downY = pointer.y;
+    this.base.setPosition(this.toRenderX(pointer.x), this.toRenderY(pointer.y)).setVisible(true);
+    this.thumb.setPosition(this.base.x, this.base.y).setVisible(true);
     this.vector.set(0, 0);
   }
 
   private onMove(pointer: Phaser.Input.Pointer): void {
     if (!this.isActive || pointer.id !== this.pointerId) return;
-    const dx = pointer.x - this.base.x;
-    const dy = pointer.y - this.base.y;
+    // All math in raw screen space; only the sprites go through the transform.
+    const dx = pointer.x - this.downX;
+    const dy = pointer.y - this.downY;
     const len = Math.hypot(dx, dy);
     const clamped = Math.min(len, JOYSTICK.radius);
     const nx = len > 0 ? dx / len : 0;
     const ny = len > 0 ? dy / len : 0;
-    this.thumb.setPosition(this.base.x + nx * clamped, this.base.y + ny * clamped);
+    this.thumb.setPosition(
+      this.toRenderX(this.downX + nx * clamped),
+      this.toRenderY(this.downY + ny * clamped),
+    );
     this.vector.set((nx * clamped) / JOYSTICK.radius, (ny * clamped) / JOYSTICK.radius);
   }
 

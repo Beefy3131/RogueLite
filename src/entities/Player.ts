@@ -18,6 +18,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   readonly facing = new Phaser.Math.Vector2(1, 0);
   /** Hazard speed multiplier (graveyard fog sets this each frame). */
   hazardSlow = 1;
+  /** Ultimate effects (UltimateSystem owns these). */
+  ultShield = false;
+  ultSpeedMult = 1;
 
   private invulnUntil = 0;
   private dead = false;
@@ -45,7 +48,14 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   }
 
   get moveSpeed(): number {
-    return PLAYER.moveSpeed * this.stats.speedMult * this.hazardSlow;
+    return PLAYER.moveSpeed * this.stats.speedMult * this.hazardSlow * this.ultSpeedMult;
+  }
+
+  /** Clamped heal (Warden ult, future sources). */
+  heal(amount: number): void {
+    if (this.dead || amount <= 0) return;
+    this.hp = Math.min(this.maxHP, this.hp + amount);
+    this.scene.events.emit('hud-hp', this.hp, this.maxHP);
   }
 
   /**
@@ -124,7 +134,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
   /** Returns true if the hit landed (not dead, not inside i-frames). */
   takeDamage(amount: number): boolean {
-    if (this.dead) return false;
+    if (this.dead || this.ultShield) return false;
     const now = this.scene.time.now;
     if (now < this.invulnUntil) return false;
     this.invulnUntil = now + PLAYER.iFrameSeconds * 1000;

@@ -58,6 +58,13 @@ const game = new Phaser.Game({
 // Audio can only start after a user gesture — arm the unlock listeners now.
 audio.attachUnlock();
 
+// Mobile browsers resize the visible viewport when the URL bar hides/shows
+// without always firing window.resize — re-fit the canvas whenever the
+// container's box actually changes, whatever triggered it.
+window.visualViewport?.addEventListener('resize', () => game.scale.refresh());
+const container = document.getElementById('game');
+if (container) new ResizeObserver(() => game.scale.refresh()).observe(container);
+
 // Debug handles for inspecting scene/pool/save/audio state from the console.
 (window as unknown as { __game: Phaser.Game }).__game = game;
 (window as unknown as { __save: unknown }).__save = saveManager;

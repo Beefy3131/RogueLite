@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import {
   BANISH_CHARGES_PER_RUN,
   CAMERA,
+  CHESTS,
   COLLISION,
   ENEMY_BASE,
   GAME,
@@ -11,6 +12,7 @@ import {
   POOLS,
   PROPS,
   RUN,
+  UI,
   WORLD,
   XP,
 } from '../config/balance';
@@ -33,6 +35,7 @@ import { ObjectPool } from '../systems/ObjectPool';
 import { ParticlePool } from '../systems/ParticlePool';
 import { saveManager } from '../systems/SaveManager';
 import { SpawnDirector } from '../systems/SpawnDirector';
+import { UltimateSystem } from '../systems/UltimateSystem';
 import { WeaponSystem } from '../systems/WeaponSystem';
 import type { UpgradeChoice } from './LevelUpScene';
 
@@ -47,6 +50,7 @@ export class GameScene extends Phaser.Scene {
   enemyPool!: ObjectPool<Enemy>;
   spawnDirector!: SpawnDirector;
   weaponSystem!: WeaponSystem;
+  ultimate!: UltimateSystem;
 
   level = 1;
   xp = 0;
@@ -69,6 +73,7 @@ export class GameScene extends Phaser.Scene {
   private readonly queryBuffer: Enemy[] = [];
   private readonly passiveLevels = new Map<string, number>();
   private ground!: Phaser.GameObjects.TileSprite;
+  private chestTimerMs = 0;
   private elapsedMs = 0;
   private ended = false;
   private levelingUp = false;
@@ -111,13 +116,15 @@ export class GameScene extends Phaser.Scene {
     this.map = getMap(this.registry.get('selected-map') ?? 'forest');
     this.fogZones = [];
     this.fogTimerMs = HAZARDS.fogIntervalSeconds * 1000;
+    this.chestTimerMs = CHESTS.firstAtSeconds * 1000;
 
     this.physics.world.setBounds(0, 0, WORLD.width, WORLD.height);
 
+    // World-sized (not screen-space): screen-space objects get scaled by the
+    // camera zoom, which would leave uncovered borders when zoomed out.
     this.ground = this.add
-      .tileSprite(0, 0, GAME.width, GAME.height, this.map.groundTexture)
+      .tileSprite(0, 0, WORLD.width, WORLD.height, this.map.groundTexture)
       .setOrigin(0)
-      .setScrollFactor(0)
       .setDepth(-1);
 
     this.inputManager = new InputManager(this);
@@ -126,6 +133,7 @@ export class GameScene extends Phaser.Scene {
 
     const cam = this.cameras.main;
     cam.setBounds(0, 0, WORLD.width, WORLD.height);
+    cam.setZoom(CAMERA.zoom);
     cam.startFollow(this.player, true, CAMERA.followLerp, CAMERA.followLerp);
 
     // Perf foundation (Phase 3): pre-warmed pools + spatial hash.
@@ -143,6 +151,16 @@ export class GameScene extends Phaser.Scene {
     this.grid = new CollisionGrid<Enemy>();
     this.spawnDirector = new SpawnDirector(this, this.enemyPool, this.player, this.map);
     this.weaponSystem = new WeaponSystem(this, this.player, this.enemyPool, this.grid, this.projectilePool);
+    this.ultimate = new UltimateSystem(
+      this,
+      this.player,
+      this.character,
+      this.enemyPool,
+      this.grid,
+      this.projectilePool,
+      this.particles,
+      this.explosionFx,
+    );
 
     this.weaponSystem.addWeapon(this.character.startWeapon);
 
@@ -159,6 +177,7 @@ export class GameScene extends Phaser.Scene {
       'player-hurt',
       'damage-dealt',
       'boss-spawned',
+      'ult-pressed',
     ]) {
       this.events.off(ev);
     }
@@ -185,6 +204,14 @@ export class GameScene extends Phaser.Scene {
     this.events.on('gem-collected', (gem: XPGem, value: number) => this.onGemCollected(gem, value));
     this.events.on('enemy-shoot', (enemy: Enemy, damage: number) => this.onEnemyShoot(enemy, damage));
     this.events.on('pickup-collected', (pickup: Pickup, kind: PickupKind) => this.onPickupCollected(pickup, kind));
+    // Ultimate: HUD button emits 'ult-pressed'; the emitter isn't paused with
+    // the scene, so guard against firing mid-level-up / after the run ends.
+    this.events.on('ult-pressed', () => {
+      if (this.ended || this.levelingUp || this.scene.isPaused()) return;
+      this.ultimate.tryActivate(this.level);
+    });
+    this.input.keyboard?.on('keydown-SPACE', () => this.events.emit('ult-pressed'));
+
     this.events.on('player-died', () => {
       if (this.revivesLeft > 0) {
         this.revivesLeft--;
@@ -197,8 +224,11 @@ export class GameScene extends Phaser.Scene {
     this.scene.launch('HUD');
 
     // --- Debug / stress-test mode (Phase 3 perf gate) ---
+    // Screen-space objects are scaled by the camera zoom around the screen
+    // center — inverse-transform so the overlay lands where it always did.
+    const dz = 1 / CAMERA.zoom;
     this.debugText = this.add
-      .text(GAME.width - 12, 48, '', {
+      .text(GAME.width / 2 + (GAME.width - 12 - GAME.width / 2) * dz, GAME.height / 2 + (48 - GAME.height / 2) * dz, '', {
         fontFamily: 'monospace',
         fontSize: '13px',
         color: '#00e676',
@@ -208,6 +238,7 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(1, 0)
       .setScrollFactor(0)
+      .setScale(dz)
       .setDepth(3000)
       .setVisible(false);
 
@@ -240,12 +271,11 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const cam = this.cameras.main;
-    this.ground.setTilePosition(cam.scrollX, cam.scrollY);
     this.explosionFx.update(delta);
     this.damageNumbers.update(delta);
     this.particles.update(delta);
     this.updateFog(delta);
+    this.updateChests(delta);
 
     this.spawnDirector.update(delta, this.elapsedMs / 1000);
 
@@ -256,6 +286,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.weaponSystem.update(delta);
+    this.ultimate.update(delta);
     this.resolvePlayerContact();
     this.resolvePlayerProps();
 
@@ -288,6 +319,7 @@ export class GameScene extends Phaser.Scene {
   private onEnemyKilled(enemy: Enemy): void {
     this.kills++;
     this.events.emit('hud-kills', this.kills);
+    this.ultimate.onKill();
     const { kind, x, y } = enemy;
     const minute = this.elapsedMs / 60000;
 
@@ -359,6 +391,7 @@ export class GameScene extends Phaser.Scene {
 
   private onPickupCollected(pickup: Pickup, kind: PickupKind): void {
     const value = pickup.value;
+    const { x, y } = pickup;
     pickup.despawn();
     this.pickupPool.release(pickup);
     audio.play('pickup');
@@ -367,12 +400,71 @@ export class GameScene extends Phaser.Scene {
       this.events.emit('hud-hp', this.player.hp, this.player.maxHP);
     } else if (kind === 'gold') {
       this.awardGold(value);
+    } else if (kind === 'chest') {
+      this.openChest(x, y);
     } else {
       // Magnet-all: every gem on the map flies in.
       for (const gem of this.gemPool.active) {
         if (gem.active) gem.forceMagnet = true;
       }
     }
+  }
+
+  // --- Loot chests: timed spawns near the player, random gold + maybe a level ---
+
+  private updateChests(delta: number): void {
+    this.chestTimerMs -= delta;
+    if (this.chestTimerMs > 0) return;
+    const jitter = (Math.random() * 2 - 1) * CHESTS.jitterSeconds;
+    this.chestTimerMs += (CHESTS.intervalSeconds + jitter) * 1000;
+
+    const angle = Math.random() * Math.PI * 2;
+    const dist = CHESTS.spawnDistanceMin + Math.random() * (CHESTS.spawnDistanceMax - CHESTS.spawnDistanceMin);
+    const x = Phaser.Math.Clamp(this.player.x + Math.cos(angle) * dist, 60, WORLD.width - 60);
+    const y = Phaser.Math.Clamp(this.player.y + Math.sin(angle) * dist, 60, WORLD.height - 60);
+    this.pickupPool.acquire().spawn(x, y, 'chest', this.player);
+  }
+
+  private openChest(x: number, y: number): void {
+    audio.play('purchase');
+    this.particles.burst(x, y, 0xffd54f, 14);
+
+    const gold = CHESTS.minGold + Math.floor(Math.random() * (CHESTS.maxGold - CHESTS.minGold + 1));
+    this.awardGold(gold);
+    this.toast(x, y - 14, `+${Math.round(gold * this.player.stats.goldMult)} GOLD`, '#ffd54f');
+
+    if (Math.random() < CHESTS.upgradeChance) {
+      const choices = this.buildChoices();
+      if (choices.length > 0) {
+        const choice = choices[Math.floor(Math.random() * choices.length)];
+        this.applyChoiceEffect(choice);
+        const label = choice.kind === 'passive' || choice.tag === 'NEW!' ? choice.name : `${choice.name} ↑`;
+        this.toast(x, y + 12, label, UI.colors.accentCss);
+      }
+    }
+  }
+
+  /** One-off floating reward text (chests are rare — allocation is fine). */
+  private toast(x: number, y: number, text: string, color: string): void {
+    const t = this.add
+      .text(x, y, text, {
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '15px',
+        fontStyle: 'bold',
+        color,
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5)
+      .setDepth(60);
+    this.tweens.add({
+      targets: t,
+      y: y - 34,
+      alpha: 0,
+      duration: 1400,
+      ease: 'Cubic.easeOut',
+      onComplete: () => t.destroy(),
+    });
   }
 
   private onGemCollected(gem: XPGem, value: number): void {
@@ -405,6 +497,13 @@ export class GameScene extends Phaser.Scene {
   /** Called by LevelUpScene after it stops itself and resumes this scene. */
   applyUpgrade(choice: UpgradeChoice): void {
     this.levelingUp = false;
+    this.applyChoiceEffect(choice);
+    // Banked XP can cover several levels — chain into the next pick.
+    this.tryLevelUp();
+  }
+
+  /** Grant a weapon/passive choice — level-up picks and chest drops share this. */
+  private applyChoiceEffect(choice: UpgradeChoice): void {
     if (choice.kind === 'weapon-new') {
       this.weaponSystem.addWeapon(choice.id as WeaponId);
     } else if (choice.kind === 'weapon-upgrade') {
@@ -415,8 +514,6 @@ export class GameScene extends Phaser.Scene {
       this.player.recomputeStats(this.passiveLevels);
       this.events.emit('hud-passives', [...this.passiveLevels.entries()]);
     }
-    // Banked XP can cover several levels — chain into the next pick.
-    this.tryLevelUp();
   }
 
   /** Skip button on the level-up overlay (shop unlock). */

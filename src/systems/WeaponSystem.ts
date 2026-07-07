@@ -155,6 +155,20 @@ export class WeaponSystem {
           this.fireBoomerangs(stats);
           w.cooldownMs += WEAPON_BASE.boomerang.cooldown * 1000 * cd;
           break;
+        case 'fireball':
+          if (!this.fireFireball(stats)) {
+            w.cooldownMs = 0;
+            continue;
+          }
+          w.cooldownMs += WEAPON_BASE.fireball.cooldown * 1000 * cd;
+          break;
+        case 'venom':
+          if (!this.fireVenom(stats)) {
+            w.cooldownMs = 0;
+            continue;
+          }
+          w.cooldownMs += WEAPON_BASE.venom.cooldown * 1000 * cd;
+          break;
       }
     }
 
@@ -166,9 +180,35 @@ export class WeaponSystem {
     this.bolts.update(deltaMs);
   }
 
-  // --- Magic Bolt: one projectile per k-nearest enemy ---
+  // --- Magic Bolt / Fireball / Venom: one projectile per k-nearest enemy ---
 
   private fireMagicBolt(stats: WeaponLevelStats): boolean {
+    return this.fireAtNearest(stats, WEAPON_BASE.magicBolt.projectileSpeed);
+  }
+
+  private fireFireball(stats: WeaponLevelStats): boolean {
+    const base = WEAPON_BASE.fireball;
+    // DoT ticks scale with hit damage (multiplied, no crit roll).
+    const tick = stats.damage * this.player.stats.damageMult * base.burnTickFraction;
+    return this.fireAtNearest(stats, base.projectileSpeed, 'projectile-fireball', enemy =>
+      enemy.applyBurn(tick, base.burnDurationMs),
+    );
+  }
+
+  private fireVenom(stats: WeaponLevelStats): boolean {
+    const base = WEAPON_BASE.venom;
+    const tick = stats.damage * this.player.stats.damageMult * base.poisonTickFraction;
+    return this.fireAtNearest(stats, base.projectileSpeed, 'projectile-venom', enemy =>
+      enemy.applyPoison(tick, base.poisonDurationMs, base.maxStacks),
+    );
+  }
+
+  private fireAtNearest(
+    stats: WeaponLevelStats,
+    speed: number,
+    texture?: string,
+    onHit?: (enemy: Enemy) => void,
+  ): boolean {
     const count = this.countFor(stats);
     let fired = 0;
     let lastDist = -1;
@@ -190,11 +230,13 @@ export class WeaponSystem {
         x: this.player.x,
         y: this.player.y,
         angle,
-        speed: WEAPON_BASE.magicBolt.projectileSpeed,
+        speed,
         damage: this.rollDamage(stats.damage),
         pierce: stats.pierce ?? 0,
+        texture,
         lifetimeMs: PROJECTILE.lifetimeMs * this.player.stats.durationMult,
         grid: this.grid,
+        onHit,
       });
       fired++;
     }

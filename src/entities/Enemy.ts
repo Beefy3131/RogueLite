@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { CULLING, ENEMY_BASE, TIME_SCALING, type EnemyKind } from '../config/balance';
+import { CULLING, DOT, ENEMY_BASE, TIME_SCALING, type EnemyKind } from '../config/balance';
 import { ENEMY_LOOKS } from '../config/enemies';
 
 /**
@@ -24,6 +24,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   orbitImmuneUntil = 0;
   /** Map props to push out of (set once by the pool factory). Ghosts ignore them. */
   obstacles: ReadonlyArray<{ x: number; y: number; r: number }> | null = null;
+
+  // Damage-over-time (Fireball burn / Venom poison), ticking on DOT.tickMs.
+  private burnUntil = 0;
+  private burnTickDamage = 0;
+  private poisonUntil = 0;
+  private poisonTickDamage = 0;
+  private dotTickMs = 0;
 
   private target: Phaser.GameObjects.Sprite | null = null;
   private retargetMs = 0;
@@ -69,6 +76,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.retargetMs = 0;
     this.flashUntil = 0;
     this.orbitImmuneUntil = 0;
+    this.burnUntil = 0;
+    this.burnTickDamage = 0;
+    this.poisonUntil = 0;
+    this.poisonTickDamage = 0;
+    this.dotTickMs = Math.random() * DOT.tickMs; // stagger ticks across the horde
     this.wavePhase = Math.random() * Math.PI * 2;
     this.shootTimerMs = 1000 + Math.random() * 1500; // stagger shooter volleys
     this.bossPhase = 'roam';
@@ -113,12 +125,66 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.flashUntil = this.scene.time.now + 60;
   }
 
+  /** Burn (Fireball): strongest source wins, duration refreshes. */
+  applyBurn(tickDamage: number, durationMs: number): void {
+    const now = this.scene.time.now;
+    this.burnTickDamage = now < this.burnUntil ? Math.max(this.burnTickDamage, tickDamage) : tickDamage;
+    this.burnUntil = now + durationMs;
+    this.applyStatusTint();
+  }
+
+  /** Poison (Venom): stacks additively up to maxStacks× one hit's tick. */
+  applyPoison(tickDamage: number, durationMs: number, maxStacks: number): void {
+    const now = this.scene.time.now;
+    this.poisonTickDamage =
+      now < this.poisonUntil
+        ? Math.min(this.poisonTickDamage + tickDamage, tickDamage * maxStacks)
+        : tickDamage;
+    this.poisonUntil = now + durationMs;
+    this.applyStatusTint();
+  }
+
+  /** Status color while afflicted; the white hit-flash restores through here. */
+  private applyStatusTint(): void {
+    const now = this.scene.time.now;
+    const burning = now < this.burnUntil;
+    const poisoned = now < this.poisonUntil;
+    if (burning && poisoned) this.setTint(0xd4e157);
+    else if (burning) this.setTint(0xffab40);
+    else if (poisoned) this.setTint(0x9ccc65);
+    else this.clearTint();
+  }
+
+  private updateDots(time: number, delta: number): void {
+    if (this.burnUntil === 0 && this.poisonUntil === 0) return;
+    this.dotTickMs -= delta;
+    if (this.dotTickMs > 0) return;
+    this.dotTickMs += DOT.tickMs;
+
+    let damage = 0;
+    if (time < this.burnUntil) damage += this.burnTickDamage;
+    else this.burnTickDamage = 0;
+    if (time < this.poisonUntil) damage += this.poisonTickDamage;
+    else this.poisonTickDamage = 0;
+
+    if (damage > 0) {
+      this.takeDamage(damage); // no source → DoT ignores the shield resist
+    } else {
+      this.burnUntil = 0;
+      this.poisonUntil = 0;
+      if (this.flashUntil === 0) this.applyStatusTint(); // both expired — clear color
+    }
+  }
+
   override preUpdate(time: number, delta: number): void {
     super.preUpdate(time, delta);
     if (!this.active || !this.target) return;
 
+    this.updateDots(time, delta);
+    if (!this.active) return; // the DoT tick may have killed us
+
     if (this.flashUntil > 0 && time >= this.flashUntil) {
-      this.clearTint();
+      this.applyStatusTint();
       this.flashUntil = 0;
     }
 

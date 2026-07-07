@@ -10,7 +10,9 @@ export type WeaponId =
   | 'orbit'
   | 'fireBomb'
   | 'lightning'
-  | 'boomerang';
+  | 'boomerang'
+  | 'fireball'
+  | 'venom';
 
 export type WeaponBehavior =
   | 'nearestTarget' // Magic Bolt
@@ -20,7 +22,9 @@ export type WeaponBehavior =
   | 'orbit' // Orbit Shards
   | 'lob' // Fire Bomb
   | 'randomStrike' // Lightning
-  | 'boomerang'; // Boomerang
+  | 'boomerang' // Boomerang
+  | 'fireball' // Fireball: slow heavy bolt, ignites (burn DoT)
+  | 'venom'; // Venom Dart: fast dart, stacking poison DoT
 
 /** Absolute stats at a given level (not deltas). Index 0 = level 1. */
 export interface WeaponLevelStats {
@@ -180,6 +184,40 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
       { damage: 22, count: 3, areaScale: 1.27, text: '+damage' },
       { damage: 22, count: 4, areaScale: 1.5, text: '+1 boomerang, +range' },
       { damage: 26, count: 4, areaScale: 1.5, text: '+damage' },
+    ],
+  },
+  fireball: {
+    id: 'fireball',
+    name: 'Fireball',
+    behavior: 'fireball',
+    maxLevel: 8,
+    levels: [
+      // Burn DoT scales off hit damage (WEAPON_BASE.fireball.burnTickFraction).
+      { damage: 14, count: 1, pierce: 1, text: 'Heavy bolt that sets enemies ablaze' },
+      { damage: 18, count: 1, pierce: 1, text: '+damage, +burn' },
+      { damage: 18, count: 2, pierce: 1, text: '+1 fireball' },
+      { damage: 22, count: 2, pierce: 1, text: '+damage, +burn' },
+      { damage: 26, count: 2, pierce: 2, text: '+damage, +1 pierce' },
+      { damage: 26, count: 3, pierce: 2, text: '+1 fireball' },
+      { damage: 30, count: 3, pierce: 2, text: '+damage, +burn' },
+      { damage: 36, count: 4, pierce: 2, text: '+1 fireball, +damage' },
+    ],
+  },
+  venom: {
+    id: 'venom',
+    name: 'Venom Dart',
+    behavior: 'venom',
+    maxLevel: 8,
+    levels: [
+      // Weak on hit; the poison (stacks ×3) is the real damage.
+      { damage: 6, count: 1, pierce: 0, text: 'Dart that poisons: damage over time' },
+      { damage: 6, count: 2, pierce: 0, text: '+1 dart' },
+      { damage: 8, count: 2, pierce: 0, text: '+damage, +poison' },
+      { damage: 8, count: 3, pierce: 0, text: '+1 dart' },
+      { damage: 10, count: 3, pierce: 1, text: '+damage, darts pierce 1' },
+      { damage: 10, count: 4, pierce: 1, text: '+1 dart' },
+      { damage: 12, count: 4, pierce: 1, text: '+damage, +poison' },
+      { damage: 14, count: 5, pierce: 1, text: '+1 dart, +damage' },
     ],
   },
 };

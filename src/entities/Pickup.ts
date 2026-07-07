@@ -2,12 +2,13 @@ import Phaser from 'phaser';
 import { PICKUPS } from '../config/balance';
 import type { Player } from './Player';
 
-export type PickupKind = 'heal' | 'magnet' | 'gold';
+export type PickupKind = 'heal' | 'magnet' | 'gold' | 'chest';
 
 const TEXTURES: Record<PickupKind, string> = {
   heal: 'pickup-heal',
   magnet: 'pickup-magnet',
   gold: 'pickup-gold',
+  chest: 'pickup-chest',
 };
 
 /**
