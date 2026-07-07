@@ -30,15 +30,21 @@ export class LevelUpScene extends Phaser.Scene {
   private choices: UpgradeChoice[] = [];
   private picked = false;
   private banishMode = false;
+  // Taps are ignored until armed — gives a thumb on the joystick time to lift
+  // off (spec §12 mobile). Reroll/banish restarts skip the wait via `instant`.
+  private armed = false;
+  private instant = false;
 
   constructor() {
     super('LevelUp');
   }
 
-  init(data: { choices: UpgradeChoice[] }): void {
+  init(data: { choices: UpgradeChoice[]; instant?: boolean }): void {
     this.choices = data.choices;
     this.picked = false;
     this.banishMode = false;
+    this.armed = false;
+    this.instant = data.instant ?? false;
   }
 
   create(): void {
@@ -57,17 +63,31 @@ export class LevelUpScene extends Phaser.Scene {
 
     const spacing = 236;
     const startX = width / 2 - ((this.choices.length - 1) * spacing) / 2;
+    const cards: Card[] = [];
     this.choices.forEach((choice, i) => {
       const tagColor = choice.kind === 'weapon-new' ? UI.colors.accentCss : '#40c4ff';
-      new Card(
-        this,
-        startX + i * spacing,
-        height * 0.5,
-        { name: choice.name, tag: choice.tag, tagColor, desc: choice.desc },
-        () => (this.banishMode ? this.banish(choice) : this.pick(choice, game)),
+      cards.push(
+        new Card(
+          this,
+          startX + i * spacing,
+          height * 0.5,
+          { name: choice.name, tag: choice.tag, tagColor, desc: choice.desc },
+          () => (this.banishMode ? this.banish(choice) : this.pick(choice, game)),
+        ),
       );
       this.input.keyboard?.on(`keydown-${'ONE,TWO,THREE'.split(',')[i]}`, () => this.pick(choice, game));
     });
+
+    // Arming delay: cards start dim and unclickable so a held touch can lift.
+    if (this.instant) {
+      this.armed = true;
+    } else {
+      cards.forEach(c => c.setAlpha(0.4));
+      this.time.delayedCall(UI.levelUpArmDelayMs, () => {
+        this.armed = true;
+        cards.forEach(c => c.setAlpha(1));
+      });
+    }
 
     // Utility row (spec §11 unlocks) — only rendered if owned.
     const buttons: Array<{ label: string; onClick: () => void }> = [];
@@ -81,6 +101,7 @@ export class LevelUpScene extends Phaser.Scene {
       buttons.push({
         label: `BANISH (${game.banishesLeft})`,
         onClick: () => {
+          if (!this.armed) return;
           this.banishMode = !this.banishMode;
           title.setText(this.banishMode ? 'BANISH WHICH?' : 'LEVEL UP!');
           title.setColor(this.banishMode ? '#ff5252' : UI.colors.accentCss);
@@ -99,7 +120,7 @@ export class LevelUpScene extends Phaser.Scene {
   }
 
   private pick(choice: UpgradeChoice, game: GameSceneApi): void {
-    if (this.picked) return;
+    if (this.picked || !this.armed) return;
     this.picked = true;
     this.scene.stop();
     this.scene.resume('Game');
@@ -107,7 +128,7 @@ export class LevelUpScene extends Phaser.Scene {
   }
 
   private skip(game: GameSceneApi): void {
-    if (this.picked) return;
+    if (this.picked || !this.armed) return;
     this.picked = true;
     this.scene.stop();
     this.scene.resume('Game');
@@ -115,13 +136,13 @@ export class LevelUpScene extends Phaser.Scene {
   }
 
   private reroll(game: GameSceneApi): void {
-    if (this.picked) return;
-    this.scene.restart({ choices: game.rerollChoices() });
+    if (this.picked || !this.armed) return;
+    this.scene.restart({ choices: game.rerollChoices(), instant: true });
   }
 
-  private banish(choice: UpgradeChoice, ): void {
-    if (this.picked) return;
+  private banish(choice: UpgradeChoice): void {
+    if (this.picked || !this.armed) return;
     const game = this.scene.get('Game') as GameSceneApi;
-    this.scene.restart({ choices: game.banishChoice(choice.id) });
+    this.scene.restart({ choices: game.banishChoice(choice.id), instant: true });
   }
 }

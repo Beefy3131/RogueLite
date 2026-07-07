@@ -222,6 +222,7 @@ export class GameScene extends Phaser.Scene {
     // Pause (spec §12: Esc or P).
     const openPause = () => {
       if (this.ended || this.levelingUp) return;
+      this.inputManager.reset(); // held touch never gets a pointerup while paused
       this.scene.pause();
       this.scene.launch('Pause');
     };
@@ -396,6 +397,7 @@ export class GameScene extends Phaser.Scene {
 
     this.levelingUp = true;
     audio.play('level-up');
+    this.inputManager.reset(); // held touch never gets a pointerup while paused
     this.scene.pause();
     this.scene.launch('LevelUp', { choices });
   }

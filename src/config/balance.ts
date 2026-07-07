@@ -287,6 +287,9 @@ export const CULLING = {
 /** UI conventions (spec §13). */
 export const UI = {
   minTapTargetPx: 44,
+  // Level-up overlay ignores taps for this long so a thumb still on the
+  // joystick can lift off without accidentally picking a card (mobile).
+  levelUpArmDelayMs: 2000,
   colors: {
     background: 0x1a1a2e,
     backgroundCss: '#1a1a2e',

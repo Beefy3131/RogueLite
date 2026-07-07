@@ -23,6 +23,11 @@ export class InputManager {
     this.joystick = new VirtualJoystick(scene);
   }
 
+  /** Drop any held joystick touch — call before pausing the scene so the last direction doesn't stick. */
+  reset(): void {
+    this.joystick?.reset();
+  }
+
   /** Normalized move vector, length 0..1. Joystick (analog) wins while touched. */
   get moveVector(): Phaser.Math.Vector2 {
     if (this.joystick?.isActive) {

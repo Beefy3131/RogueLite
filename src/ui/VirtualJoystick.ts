@@ -57,6 +57,15 @@ export class VirtualJoystick {
 
   private onUp(pointer: Phaser.Input.Pointer): void {
     if (!this.isActive || pointer.id !== this.pointerId) return;
+    this.reset();
+  }
+
+  /**
+   * Force-release the stick. When the scene pauses mid-touch (level-up, pause
+   * menu) the pointerup never reaches us, so the old vector would keep driving
+   * the player on resume — callers reset us before pausing.
+   */
+  reset(): void {
     this.isActive = false;
     this.pointerId = -1;
     this.base.setVisible(false);
