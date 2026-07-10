@@ -13,8 +13,12 @@ export type UnlockCondition =
 export interface CharacterDef {
   id: string;
   name: string;
-  /** Tint applied to the white player base sprite. */
+  /** Accent color (UI highlights, wisp/particle tints). */
   tint: number;
+  /** 0x72 dungeon-atlas animation prefix, e.g. 'elf_m' → elf_m_run_anim_f0..3. */
+  sprite: string;
+  /** True once real portrait art exists at public/assets/portraits/<id>.png. */
+  hasPortrait?: boolean;
   startWeapon: WeaponId;
   perkText: string;
   /** Compact stat arrows for the select screen, e.g. "HP↑ Spd↓". */
@@ -29,6 +33,7 @@ export interface CharacterDef {
 export const CHARACTERS: CharacterDef[] = [
   {
     id: 'ranger',
+    sprite: 'elf_m',
     name: 'Ranger',
     tint: 0x00e676,
     startWeapon: 'magicBolt',
@@ -39,6 +44,7 @@ export const CHARACTERS: CharacterDef[] = [
   },
   {
     id: 'brute',
+    sprite: 'knight_m',
     name: 'Brute',
     tint: 0xef5350,
     startWeapon: 'whip',
@@ -50,6 +56,7 @@ export const CHARACTERS: CharacterDef[] = [
   },
   {
     id: 'dasher',
+    sprite: 'lizard_m',
     name: 'Dasher',
     tint: 0xffee58,
     startWeapon: 'knife',
@@ -60,6 +67,7 @@ export const CHARACTERS: CharacterDef[] = [
   },
   {
     id: 'warden',
+    sprite: 'dwarf_m',
     name: 'Warden',
     tint: 0x42a5f5,
     startWeapon: 'aura',
@@ -70,6 +78,7 @@ export const CHARACTERS: CharacterDef[] = [
   },
   {
     id: 'conjurer',
+    sprite: 'wizzard_m',
     name: 'Conjurer',
     tint: 0xab47bc,
     startWeapon: 'orbit',
@@ -80,6 +89,7 @@ export const CHARACTERS: CharacterDef[] = [
   },
   {
     id: 'bomber',
+    sprite: 'wizzard_f',
     name: 'Bomber',
     tint: 0xffa726,
     startWeapon: 'fireBomb',

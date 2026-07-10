@@ -27,7 +27,7 @@ export class UltimateSystem {
   private wispFireTimerMs = 0;
   private wispAngle = 0;
   private trailTimerMs = 0;
-  private wisp: Phaser.GameObjects.Image | null = null;
+  private wisp: Phaser.GameObjects.Sprite | null = null;
   private readonly queryBuffer: Enemy[] = [];
   private readonly ultId: UltId | null;
 
@@ -75,6 +75,15 @@ export class UltimateSystem {
     this.level = level;
     this.kills = 0;
     audio.play('ult-fire');
+    // Activation flourish: expanding ring + starburst in the character color.
+    this.particles.burstFx(this.player.x, this.player.y, {
+      texture: 'p-twirl_01', count: 1, color: this.player.character.tint, add: true,
+      scaleStart: 0.9, scaleEnd: 0.1, speedMin: 0, speedMax: 5, lifeMin: 380, lifeMax: 420,
+    });
+    this.particles.burstFx(this.player.x, this.player.y, {
+      texture: 'p-star_04', count: 10, color: this.player.character.tint, add: true,
+      scaleStart: 0.13, scaleEnd: 0.02, speedMin: 120, speedMax: 300, lifeMin: 300, lifeMax: 500,
+    });
 
     switch (this.ultId) {
       case 'bomber':
@@ -144,7 +153,7 @@ export class UltimateSystem {
     this.activeMsLeft = 0;
     this.player.ultShield = false;
     this.player.ultSpeedMult = 1;
-    this.player.setTint(this.player.character.tint);
+    this.player.clearTint();
     if (this.wisp) this.wisp.setVisible(false);
   }
 
@@ -183,7 +192,7 @@ export class UltimateSystem {
         speed: cfg.projectileSpeed,
         damage,
         pierce: 1,
-        texture: 'projectile',
+        texture: 'fx-arrow',
         grid: this.grid,
       });
     }
@@ -202,7 +211,11 @@ export class UltimateSystem {
   /** Conjurer: an orbiting wisp that shoots the nearest enemy in range. */
   private showWisp(): void {
     if (!this.wisp) {
-      this.wisp = this.scene.add.image(this.player.x, this.player.y, 'player').setScale(0.55).setTint(0xce93d8).setDepth(11);
+      this.wisp = this.scene.add
+        .sprite(this.player.x, this.player.y, 'dungeon', 'angel_idle_anim_f0')
+        .setScale(1.1)
+        .setDepth(11);
+      this.wisp.play('angel-idle');
     }
     this.wisp.setVisible(true);
   }
@@ -237,7 +250,7 @@ export class UltimateSystem {
       speed: cfg.projectileSpeed,
       damage: Math.round(cfg.damage + cfg.damagePerLevel * (this.level - 1)),
       pierce: 0,
-      texture: 'projectile',
+      texture: 'fx-bolt',
       grid: this.grid,
     });
   }

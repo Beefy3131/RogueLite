@@ -4,11 +4,19 @@ import type { Player } from './Player';
 
 export type PickupKind = 'heal' | 'magnet' | 'gold' | 'chest';
 
-const TEXTURES: Record<PickupKind, string> = {
-  heal: 'pickup-heal',
-  magnet: 'pickup-magnet',
-  gold: 'pickup-gold',
-  chest: 'pickup-chest',
+/** Dungeon-atlas frame per kind (coin/chest also have animations). */
+const FRAMES: Record<PickupKind, string> = {
+  heal: 'flask_big_red',
+  magnet: 'flask_big_blue',
+  gold: 'coin_anim_f0',
+  chest: 'chest_full_open_anim_f0',
+};
+
+const SCALES: Record<PickupKind, number> = {
+  heal: 1.4,
+  magnet: 1.4,
+  gold: 2.4, // the coin frame is only 6×7 px
+  chest: 1.6,
 };
 
 /**
@@ -23,7 +31,7 @@ export class Pickup extends Phaser.Physics.Arcade.Sprite {
   private target: Player | null = null;
 
   constructor(scene: Phaser.Scene) {
-    super(scene, 0, 0, 'pickup-heal');
+    super(scene, 0, 0, 'dungeon', FRAMES.heal);
     scene.add.existing(this);
     scene.physics.add.existing(this);
     this.setDepth(4);
@@ -34,12 +42,16 @@ export class Pickup extends Phaser.Physics.Arcade.Sprite {
     this.enableBody(true, x, y, true, true);
     this.kind = kind;
     this.value = value;
-    this.setTexture(TEXTURES[kind]);
+    this.anims.stop();
+    this.setTexture('dungeon', FRAMES[kind]);
+    this.setScale(SCALES[kind]);
+    if (kind === 'gold') this.anims.play('coin-spin');
     this.target = target;
     return this;
   }
 
   despawn(): void {
+    this.anims.stop();
     this.disableBody(true, true);
     this.target = null;
   }

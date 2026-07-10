@@ -148,7 +148,11 @@ export class ShopScene extends Phaser.Scene {
     const bg = this.add
       .rectangle(0, 0, w, h, owned ? 0x1f3b2d : 0x23234a, 1)
       .setStrokeStyle(2, owned ? 0x2e7d32 : affordable ? 0x4a4a8a : 0x33334f);
-    const sprite = this.add.image(-w / 2 + 30, 0, 'player').setScale(1.4).setTint(owned || affordable ? def.tint : 0x444455);
+    const sprite = this.add
+      .sprite(-w / 2 + 30, 0, 'dungeon', `${def.sprite}_idle_anim_f0`)
+      .setScale(1.7);
+    if (owned) sprite.play(`${def.sprite}-idle`);
+    else if (!affordable) sprite.setTint(0x555566).setAlpha(0.8);
     const name = this.add
       .text(-w / 2 + 56, -h / 2 + 14, def.name, {
         fontFamily: 'Arial, sans-serif',

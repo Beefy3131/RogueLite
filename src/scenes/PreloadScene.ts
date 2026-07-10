@@ -1,11 +1,15 @@
 import Phaser from 'phaser';
 import { GAME, UI } from '../config/balance';
+import { CHARACTERS } from '../config/characters';
+import { audio } from '../systems/AudioManager';
 
 /**
- * Loads/generates all assets behind a progress bar, then hands off to the menu.
- * Phase 1 has no external assets — placeholder textures are generated here so
- * later phases reference everything by key (spec §15: real art drops into the
- * atlas later without touching logic).
+ * Loads all real art (spec §15) behind a progress bar, then hands off to the
+ * menu. Sources (see public/assets/CREDITS.txt, all CC0):
+ *   - 0x72 DungeonTileset II atlas: characters, monsters, pickups (animated)
+ *   - Dungeon Crawl Stone Soup: ground tiles, props, projectile effects
+ *   - Kenney Particle Pack: soft particle textures (tinted at runtime)
+ * A few effect shapes (aura ring, whip arc, joystick…) stay procedural.
  */
 export class PreloadScene extends Phaser.Scene {
   constructor() {
@@ -31,15 +35,133 @@ export class PreloadScene extends Phaser.Scene {
       fill.destroy();
     });
 
-    // External asset loads (atlas, audio) go here in later phases.
+    // Characters, monsters, chests, coins, flasks — one packed sheet.
+    this.load.atlas('dungeon', 'assets/dungeon/sheet.png', 'assets/dungeon/atlas.json');
+
+    // Ground tiles (128×128 composites, tiled across the world).
+    for (const g of ['forest', 'graveyard', 'inferno', 'astral']) {
+      this.load.image(`ground-${g}`, `assets/tiles/ground-${g}.png`);
+    }
+
+    // Props (soft obstacles / decor).
+    const props: Record<string, string> = {
+      'prop-tree1': 'tree1',
+      'prop-tree2': 'tree2',
+      'prop-tree3': 'tree3',
+      'prop-flowers': 'flower_patch_0',
+      'prop-tree-dead1': 'tree_dead1',
+      'prop-tree-dead2': 'tree_dead2',
+      'prop-tree-dead3': 'tree_dead3',
+      'prop-statue-wraith': 'statue_wraith',
+      'prop-statue-angel': 'statue_angel',
+      'prop-tree-demonic1': 'tree_demonic1',
+      'prop-tree-demonic2': 'tree_demonic2',
+      'prop-tree-demonic3': 'tree_demonic3',
+      'prop-tree-demonic4': 'tree_demonic4',
+      'prop-blood-fountain': 'blood_fountain',
+      'prop-statue-demon': 'statue_demonic_bust',
+      'prop-crystal-orb': 'statue_zot_orb',
+      'prop-fountain-spark': 'sparkling_fountain',
+      'prop-column': 'crumbled_column_1',
+      'prop-statue-imp': 'statue_imp',
+    };
+    for (const [key, file] of Object.entries(props)) {
+      this.load.image(key, `assets/props/${file}.png`);
+    }
+
+    // Projectiles / hazard effects (pre-oriented to point east where directional).
+    for (const fx of ['bolt', 'arrow', 'venom', 'fireball', 'enemy', 'shard', 'boomerang', 'lava0', 'lava1', 'void']) {
+      this.load.image(`fx-${fx}`, `assets/fx/fx-${fx}.png`);
+    }
+
+    // Kenney particles (white, soft — tinted per effect at runtime).
+    for (const p of [
+      'flame_01', 'flame_05', 'smoke_01', 'smoke_04', 'smoke_08',
+      'star_04', 'star_07', 'star_09', 'spark_04', 'light_01', 'light_02',
+      'twirl_01', 'twirl_02', 'circle_01', 'circle_05', 'flare_01',
+      'scorch_01', 'muzzle_01', 'slash_01', 'trace_01', 'dirt_02',
+      'magic_01', 'magic_04', 'symbol_02',
+    ]) {
+      this.load.image(`p-${p}`, `assets/particles/${p}.png`);
+    }
+
+    // Real character portraits (hand-made art). Only characters flagged with
+    // hasPortrait load a file; a missing PNG just logs a warning and the card
+    // falls back to the atlas sprite, so this is safe to ship before every
+    // file has been dropped into public/assets/portraits/.
+    for (const def of CHARACTERS) {
+      if (def.hasPortrait) {
+        this.load.image(`portrait-${def.id}`, `assets/portraits/${def.id}.png`);
+      }
+    }
+    this.load.on('loaderror', (file: Phaser.Loader.File) => {
+      console.warn(`[assets] optional asset missing, using placeholder: ${file.key}`);
+    });
   }
 
   create(): void {
+    // Crisp pixel art: nearest-neighbor for all pixel-art sources.
+    // (Kenney particles stay linear — they're soft glows.)
+    const pixelKeys = [
+      'dungeon',
+      'ground-forest', 'ground-graveyard', 'ground-inferno', 'ground-astral',
+      ...Object.keys(this.textures.list).filter(k => k.startsWith('prop-') || k.startsWith('fx-')),
+    ];
+    for (const key of pixelKeys) {
+      if (this.textures.exists(key)) {
+        this.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST);
+      }
+    }
+
+    this.registerAnimations();
     this.generatePlaceholderTextures();
+    // Music + SFX samples decode in the background; synth fills in meanwhile.
+    audio.preloadFiles();
     this.scene.start('MainMenu');
   }
 
-  /** Flat-color textures, referenced by key everywhere. */
+  /** Global animation registry — sprites play these by key from any scene. */
+  private registerAnimations(): void {
+    const reg = (key: string, prefix: string, frames: number, frameRate: number, repeat = -1) => {
+      if (this.anims.exists(key)) return;
+      this.anims.create({
+        key,
+        frames: Array.from({ length: frames }, (_, i) => ({
+          key: 'dungeon',
+          frame: `${prefix}_f${i}`,
+        })),
+        frameRate,
+        repeat,
+      });
+    };
+
+    // Player characters: idle + run (4 frames each in the 0x72 sheet).
+    for (const def of CHARACTERS) {
+      reg(`${def.sprite}-idle`, `${def.sprite}_idle_anim`, 4, 6);
+      reg(`${def.sprite}-run`, `${def.sprite}_run_anim`, 4, 10);
+    }
+
+    // Enemies (keys referenced by ENEMY_LOOKS in config/enemies.ts).
+    reg('tiny_zombie_run', 'tiny_zombie_run_anim', 4, 8);
+    reg('goblin_run', 'goblin_run_anim', 4, 10);
+    reg('orc_warrior_run', 'orc_warrior_run_anim', 4, 8);
+    reg('imp_run', 'imp_run_anim', 4, 10);
+    reg('necromancer_idle', 'necromancer_anim', 4, 6);
+    reg('muddy_idle', 'muddy_anim', 4, 6);
+    reg('tiny_slug_idle', 'tiny_slug_anim', 4, 8);
+    reg('chort_run', 'chort_run_anim', 4, 10);
+    reg('skelet_run', 'skelet_run_anim', 4, 8);
+    reg('masked_orc_run', 'masked_orc_run_anim', 4, 8);
+    reg('ogre_run', 'ogre_run_anim', 4, 7);
+    reg('big_demon_run', 'big_demon_run_anim', 4, 7);
+
+    // Pickups / summons.
+    reg('coin-spin', 'coin_anim', 4, 8);
+    reg('chest-open', 'chest_full_open_anim', 3, 10, 0);
+    reg('angel-idle', 'angel_idle_anim', 4, 6);
+  }
+
+  /** Procedural effect shapes that real art doesn't cover. */
   private generatePlaceholderTextures(): void {
     const g = this.add.graphics();
 
@@ -49,15 +171,7 @@ export class PreloadScene extends Phaser.Scene {
     g.generateTexture('pixel', 1, 1);
     g.clear();
 
-    // Player: white base tinted per character (spec §4). Notch shows facing.
-    g.fillStyle(0xffffff, 1);
-    g.fillRect(0, 0, 24, 24);
-    g.fillStyle(0x1a1a2e, 1);
-    g.fillRect(16, 9, 6, 6);
-    g.generateTexture('player', 24, 24);
-    g.clear();
-
-    // XP gem placeholder: small diamond.
+    // XP gem: small diamond (kept procedural — reads instantly among chaos).
     g.fillStyle(0x40c4ff, 1);
     g.fillPoints(
       [
@@ -71,91 +185,12 @@ export class PreloadScene extends Phaser.Scene {
     g.generateTexture('gem', 12, 12);
     g.clear();
 
-    // Enemies: one strong color-coded silhouette per type (spec §15).
-    const circleEnemy = (key: string, r: number, fill: number, core?: number, alpha = 1) => {
-      g.fillStyle(fill, alpha);
-      g.fillCircle(r, r, r);
-      if (core !== undefined) {
-        g.fillStyle(core, alpha);
-        g.fillCircle(r, r, r * 0.45);
-      }
-      g.generateTexture(key, r * 2, r * 2);
-      g.clear();
-    };
-    const squareEnemy = (key: string, size: number, fill: number, core?: number) => {
-      g.fillStyle(fill, 1);
-      g.fillRect(0, 0, size, size);
-      if (core !== undefined) {
-        g.fillStyle(core, 1);
-        g.fillRect(size * 0.28, size * 0.28, size * 0.44, size * 0.44);
-      }
-      g.generateTexture(key, size, size);
-      g.clear();
-    };
-
-    // Small-enemy sprites match their bumped ENEMY_BASE radii (readability +
-    // hit reliability at the zoomed-out camera).
-    circleEnemy('enemy-swarmer', 10, 0xef5350, 0xb71c1c);
-    circleEnemy('enemy-runner', 9, 0xffa726, 0xe65100);
-    squareEnemy('enemy-brute', 28, 0x8e2424, 0x5c1010);
-    // Bat: violet diamond.
-    g.fillStyle(0xab47bc, 1);
-    g.fillPoints([{ x: 8, y: 0 }, { x: 16, y: 8 }, { x: 8, y: 16 }, { x: 0, y: 8 }], true);
-    g.generateTexture('enemy-bat', 16, 16);
-    g.clear();
-    squareEnemy('enemy-shooter', 18, 0x26c6da, 0x00838f);
-    circleEnemy('enemy-splitter', 10, 0xf06292, 0xc2185b);
-    circleEnemy('enemy-mini', 7, 0xf48fb1);
-    circleEnemy('enemy-exploder', 9, 0xff7043, 0xffeb3b); // yellow core = telegraphed danger
-    circleEnemy('enemy-ghost', 8, 0xb3e5fc, undefined, 0.6);
-    // Shielded: grey square with a white shield stripe on its front (right) edge.
-    g.fillStyle(0x78909c, 1);
-    g.fillRect(0, 0, 20, 20);
-    g.fillStyle(0xffffff, 1);
-    g.fillRect(15, 0, 5, 20);
-    g.generateTexture('enemy-shielded', 20, 20);
-    g.clear();
-    circleEnemy('enemy-elite', 18, 0xffd54f, 0xff8f00);
-    squareEnemy('enemy-boss', 56, 0xd81b60, 0x880e4f);
-
-    // Ground tiles per map (spec §9 palettes). Faint grid so motion reads.
-    const ground = (key: string, base: number, line: number, speckle: number) => {
-      g.fillStyle(base, 1);
-      g.fillRect(0, 0, 64, 64);
-      g.lineStyle(1, line, 1);
-      g.strokeRect(0, 0, 64, 64);
-      g.fillStyle(speckle, 0.5);
-      g.fillCircle(17, 26, 2);
-      g.fillCircle(44, 51, 2);
-      g.fillCircle(52, 12, 1.5);
-      g.generateTexture(key, 64, 64);
-      g.clear();
-    };
-    ground('ground', UI.colors.background, 0x2a2a4e, 0x2a2a4e); // fallback
-    ground('ground-forest', 0x18281b, 0x223626, 0x2c4a30); // greens
-    ground('ground-graveyard', 0x1b1826, 0x272236, 0x353046); // cold purples
-
-    // Props: forest tree/rock, graveyard tombstone.
-    g.fillStyle(0x2e7d32, 1);
-    g.fillCircle(16, 13, 13);
-    g.fillStyle(0x5d4037, 1);
-    g.fillRect(13, 22, 6, 10);
-    g.generateTexture('prop-tree', 32, 32);
-    g.clear();
-    g.fillStyle(0x757575, 1);
-    g.fillCircle(14, 16, 11);
-    g.fillCircle(22, 19, 8);
-    g.fillStyle(0x9e9e9e, 1);
-    g.fillCircle(12, 13, 5);
-    g.generateTexture('prop-rock', 32, 30);
-    g.clear();
-    g.fillStyle(0x9e9e9e, 1);
-    g.fillRoundedRect(4, 0, 20, 26, 9);
-    g.fillRect(0, 24, 28, 6);
-    g.fillStyle(0x616161, 1);
-    g.fillRect(11, 8, 6, 2);
-    g.fillRect(13, 6, 2, 8);
-    g.generateTexture('prop-tombstone', 28, 30);
+    // Fallback ground (never used unless a map texture fails to load).
+    g.fillStyle(UI.colors.background, 1);
+    g.fillRect(0, 0, 64, 64);
+    g.lineStyle(1, 0x2a2a4e, 1);
+    g.strokeRect(0, 0, 64, 64);
+    g.generateTexture('ground', 64, 64);
     g.clear();
 
     // Fog blob: soft grey disc, drifts and slows the player (graveyard hazard).
@@ -168,7 +203,7 @@ export class PreloadScene extends Phaser.Scene {
     g.generateTexture('fog', 260, 260);
     g.clear();
 
-    // Projectile: small bright bolt.
+    // Default projectile: small bright bolt (pool fallback).
     g.fillStyle(0xffe57f, 1);
     g.fillCircle(4, 4, 4);
     g.generateTexture('projectile', 8, 8);
@@ -195,20 +230,6 @@ export class PreloadScene extends Phaser.Scene {
     g.fillStyle(0xb0bec5, 1);
     g.fillRect(0, 2, 4, 4);
     g.generateTexture('projectile-knife', 14, 8);
-    g.clear();
-
-    // Enemy shot: red orb.
-    g.fillStyle(0xff5252, 1);
-    g.fillCircle(5, 5, 5);
-    g.fillStyle(0xffcdd2, 1);
-    g.fillCircle(5, 5, 2);
-    g.generateTexture('projectile-enemy', 10, 10);
-    g.clear();
-
-    // Orbit shard: light-blue diamond.
-    g.fillStyle(0x80d8ff, 1);
-    g.fillPoints([{ x: 7, y: 0 }, { x: 14, y: 7 }, { x: 7, y: 14 }, { x: 0, y: 7 }], true);
-    g.generateTexture('shard', 14, 14);
     g.clear();
 
     // Bomb in flight.
@@ -239,62 +260,6 @@ export class PreloadScene extends Phaser.Scene {
     g.fillStyle(0xfff59d, 1);
     g.fillPoints([{ x: 14, y: 0 }, { x: 22, y: 0 }, { x: 12, y: 26 }, { x: 18, y: 26 }, { x: 6, y: 56 }, { x: 10, y: 30 }, { x: 4, y: 30 }], true);
     g.generateTexture('lightning-bolt', 24, 56);
-    g.clear();
-
-    // Boomerang: white chevron.
-    g.fillStyle(0xffffff, 1);
-    g.fillRect(0, 0, 14, 4);
-    g.fillRect(0, 0, 4, 14);
-    g.generateTexture('projectile-boomerang', 14, 14);
-    g.clear();
-
-    // Pickups: heal cross / magnet ring.
-    g.fillStyle(0x66bb6a, 1);
-    g.fillRect(6, 0, 6, 18);
-    g.fillRect(0, 6, 18, 6);
-    g.generateTexture('pickup-heal', 18, 18);
-    g.clear();
-    g.lineStyle(4, 0x40c4ff, 1);
-    g.strokeCircle(9, 9, 7);
-    g.fillStyle(0x40c4ff, 1);
-    g.fillRect(6, 12, 6, 6);
-    g.generateTexture('pickup-magnet', 18, 18);
-    g.clear();
-    // Gold cache: coin.
-    g.fillStyle(0xffd54f, 1);
-    g.fillCircle(9, 9, 8);
-    g.fillStyle(0xff8f00, 1);
-    g.fillCircle(9, 9, 5);
-    g.fillStyle(0xffd54f, 1);
-    g.fillRect(8, 5, 2, 8);
-    g.generateTexture('pickup-gold', 18, 18);
-    g.clear();
-
-    // Fireball: orange orb with a bright core.
-    g.fillStyle(0xff7043, 1);
-    g.fillCircle(7, 7, 7);
-    g.fillStyle(0xffe082, 1);
-    g.fillCircle(7, 7, 3.5);
-    g.generateTexture('projectile-fireball', 14, 14);
-    g.clear();
-
-    // Venom dart: green sliver (points right; rotated to flight direction).
-    g.fillStyle(0x9ccc65, 1);
-    g.fillRect(0, 2, 12, 4);
-    g.fillStyle(0x33691e, 1);
-    g.fillRect(8, 2, 4, 4);
-    g.generateTexture('projectile-venom', 12, 8);
-    g.clear();
-
-    // Loot chest: brown box, gold band + clasp.
-    g.fillStyle(0x6d4c41, 1);
-    g.fillRect(0, 4, 24, 16);
-    g.fillStyle(0x8d6e63, 1);
-    g.fillRect(0, 0, 24, 6);
-    g.fillStyle(0xffd54f, 1);
-    g.fillRect(10, 0, 4, 20);
-    g.fillRect(8, 9, 8, 5);
-    g.generateTexture('pickup-chest', 24, 20);
     g.clear();
 
     // Virtual joystick: base ring + thumb puck.

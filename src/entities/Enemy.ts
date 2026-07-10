@@ -58,14 +58,18 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     this.enableBody(true, x, y, true, true);
     this.kind = kind;
-    this.setTexture(looks.texture);
+    // play() swaps texture+frame; pooled sprites hop between kinds freely.
+    this.anims.play(looks.anim, true);
+    this.setScale(looks.scale);
     this.setAlpha(looks.alpha ?? 1);
     this.setRotation(0);
+    this.setFlipX(false);
     this.bodyRadius = base.radius;
+    // Arcade body dims are in unscaled texture px and scale with the sprite —
+    // divide so the world-space hit circle is exactly the balance radius.
+    const r = base.radius / looks.scale;
     const body = this.body as Phaser.Physics.Arcade.Body;
-    body.setCircle(base.radius);
-    // Recenter the circle inside whatever frame size this texture has.
-    body.setOffset(this.width / 2 - base.radius, this.height / 2 - base.radius);
+    body.setCircle(r, this.width / 2 - r, this.height / 2 - r);
 
     this.maxHP = hpOverride ?? TIME_SCALING.enemyHP(base.hp, minute);
     this.hp = this.maxHP;
@@ -91,6 +95,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   }
 
   despawn(): void {
+    this.anims.stop();
     this.disableBody(true, true);
     this.target = null;
   }
@@ -219,12 +224,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         break;
     }
 
-    if (ENEMY_LOOKS[this.kind].faceVelocity) {
-      const body = this.body as Phaser.Physics.Arcade.Body;
-      if (Math.hypot(body.velocity.x, body.velocity.y) > 1) {
-        this.setRotation(Math.atan2(body.velocity.y, body.velocity.x));
-      }
-    }
+    // Face the walk direction (art faces right by default).
+    const vx = (this.body as Phaser.Physics.Arcade.Body).velocity.x;
+    if (Math.abs(vx) > 4) this.setFlipX(vx < 0);
 
     // Soft obstacles: push out of props. Ghosts phase through (spec §7).
     if (this.obstacles && this.kind !== 'ghost' && this.kind !== 'boss') {

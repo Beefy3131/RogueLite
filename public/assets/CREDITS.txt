@@ -1,0 +1,34 @@
+RogueLite Survivors — Art Credits
+
+All art below is used under licenses that permit free commercial use.
+
+1. Character, monster, item & dungeon sprites (assets/dungeon/)
+   "16x16 DungeonTileset II" v1.7 by 0x72
+   https://0x72.itch.io/dungeontileset-ii
+   License: CC0 (public domain)
+
+2. Terrain tiles, props, statues, trees & spell effects (assets/tiles/, assets/props/, assets/fx/)
+   Dungeon Crawl Stone Soup tile set (rltiles)
+   https://github.com/crawl/crawl
+   License: CC0 (public domain)
+   Thanks to the DCSS art team (Denzi, Ontoclasm, and many others).
+
+3. Particle textures (assets/particles/)
+   "Particle Pack" by Kenney
+   https://kenney.nl/assets/particle-pack
+   License: CC0 (public domain)
+
+4. Music (assets/audio/)
+   - "The Dark Amulet" (menu) and "Woodland Fantasy" (forest)
+     by Matthew Pablo — https://matthewpablo.com — License: CC-BY 3.0
+   - "Dark Ambience Loop" (graveyard)
+     by Iwan Gabovitch (qubodup) — https://opengameart.org/users/qubodup — License: CC-BY 3.0
+   - "Battle Theme A" (inferno)
+     by cynicmusic — https://cynicmusic.com / pixelsphere.org — License: CC0
+   - "Crystal Cave + Mysterious Ambience" (astral)
+     by cynicmusic — https://cynicmusic.com / pixelsphere.org — License: CC-BY 3.0
+   All music sourced via OpenGameArt.org.
+
+5. Sound effects (assets/audio/sfx/)
+   "RPG Audio" and "Impact Sounds" by Kenney
+   https://kenney.nl — License: CC0

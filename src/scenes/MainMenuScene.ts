@@ -10,7 +10,7 @@ export class MainMenuScene extends Phaser.Scene {
   }
 
   create(): void {
-    audio.stopMusic(); // covers every quit-to-menu path
+    audio.playMusic('menu'); // no-op if the theme is already playing (quit-to-menu keeps it)
     const { width, height } = GAME;
     const cx = width / 2;
 

@@ -27,6 +27,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private regenAccumulator = 0;
   private readonly inputManager: InputManager;
 
+  /** Display scale for the 16×28 atlas frames (~27×48 px on screen). */
+  static readonly SCALE = 1.7;
+
   constructor(
     scene: Phaser.Scene,
     x: number,
@@ -34,15 +37,19 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     inputManager: InputManager,
     character: CharacterDef,
   ) {
-    super(scene, x, y, 'player');
+    super(scene, x, y, 'dungeon', `${character.sprite}_idle_anim_f0`);
     this.inputManager = inputManager;
     this.character = character;
     scene.add.existing(this);
     scene.physics.add.existing(this);
     this.setDepth(10);
-    this.setTint(character.tint);
+    this.setScale(Player.SCALE);
+    this.anims.play(`${character.sprite}-idle`);
     this.setCollideWorldBounds(true);
-    (this.body as Phaser.Physics.Arcade.Body).setCircle(COLLISION.playerRadius);
+    // Body dims are unscaled-texture px (they scale with the sprite) — divide
+    // so the world hit circle is exactly COLLISION.playerRadius.
+    const r = COLLISION.playerRadius / Player.SCALE;
+    (this.body as Phaser.Physics.Arcade.Body).setCircle(r, this.width / 2 - r, this.height / 2 - r);
     this.recomputeStats(new Map());
     this.hp = this.maxHP;
   }
@@ -102,6 +109,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     if (v.x !== 0 || v.y !== 0) {
       this.facing.copy(v).normalize();
       if (v.x !== 0) this.setFlipX(v.x < 0);
+      this.anims.play(`${this.character.sprite}-run`, true);
+    } else {
+      this.anims.play(`${this.character.sprite}-idle`, true);
     }
 
     // Recovery shop upgrade: whole-point regen ticks.

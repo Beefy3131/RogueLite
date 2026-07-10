@@ -45,8 +45,24 @@ export class CharacterSelectScene extends Phaser.Scene {
       const bg = this.add
         .rectangle(0, 0, cardW, cardH, unlocked ? 0x23234a : 0x1a1a30, 1)
         .setStrokeStyle(2, unlocked ? 0x4a4a8a : 0x2a2a44);
-      const sprite = this.add.image(-cardW / 2 + 34, -cardH / 2 + 36, 'player').setScale(1.6);
-      sprite.setTint(unlocked ? def.tint : 0x444455);
+      // Real portrait art when it exists (and the character is unlocked),
+      // otherwise the character's animated dungeon sprite.
+      const portraitKey = `portrait-${def.id}`;
+      const showPortrait = unlocked && !!def.hasPortrait && this.textures.exists(portraitKey);
+      let sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite;
+      if (showPortrait) {
+        sprite = this.add.image(-cardW / 2 + 48, 12, portraitKey);
+        // Contain-fit into the card's left column, preserving aspect.
+        const fit = Math.min(92 / sprite.width, 150 / sprite.height);
+        sprite.setScale(fit);
+      } else {
+        const s = this.add
+          .sprite(-cardW / 2 + 34, -cardH / 2 + 42, 'dungeon', `${def.sprite}_idle_anim_f0`)
+          .setScale(2.1);
+        if (unlocked) s.play(`${def.sprite}-idle`);
+        else s.setTint(0x555566).setAlpha(0.8);
+        sprite = s;
+      }
       const name = this.add
         .text(-cardW / 2 + 62, -cardH / 2 + 20, def.name, {
           fontFamily: 'Arial, sans-serif',
@@ -69,15 +85,28 @@ export class CharacterSelectScene extends Phaser.Scene {
           color: unlocked ? UI.colors.accentCss : '#555566',
         })
         .setOrigin(1, 0);
-      const perk = this.add
-        .text(0, 18, unlocked ? def.perkText : `LOCKED\n${unlockText(def)}`, {
-          fontFamily: 'Arial, sans-serif',
-          fontSize: '14px',
-          color: unlocked ? '#c8c8e8' : '#8888aa',
-          align: 'center',
-          wordWrap: { width: cardW - 28 },
-        })
-        .setOrigin(0.5, 0);
+      // With a portrait on the left, the perk text is left-aligned into the
+      // right column so it clears the art; otherwise it stays centered.
+      const perkText = unlocked ? def.perkText : `LOCKED\n${unlockText(def)}`;
+      const perk = showPortrait
+        ? this.add
+            .text(-cardW / 2 + 100, 42, perkText, {
+              fontFamily: 'Arial, sans-serif',
+              fontSize: '14px',
+              color: '#c8c8e8',
+              align: 'left',
+              wordWrap: { width: cardW - 112 },
+            })
+            .setOrigin(0, 0)
+        : this.add
+            .text(0, 18, perkText, {
+              fontFamily: 'Arial, sans-serif',
+              fontSize: '14px',
+              color: unlocked ? '#c8c8e8' : '#8888aa',
+              align: 'center',
+              wordWrap: { width: cardW - 28 },
+            })
+            .setOrigin(0.5, 0);
       card.add([bg, sprite, name, weapon, stat, perk]);
 
       if (unlocked) {

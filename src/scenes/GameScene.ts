@@ -26,6 +26,7 @@ import { Pickup, type PickupKind } from '../entities/Pickup';
 import { Player } from '../entities/Player';
 import { Projectile } from '../entities/Projectile';
 import { XPGem } from '../entities/XPGem';
+import { AmbientDrift } from '../systems/AmbientDrift';
 import { audio } from '../systems/AudioManager';
 import { CollisionGrid } from '../systems/CollisionGrid';
 import { DamageNumbers } from '../systems/DamageNumbers';
@@ -81,6 +82,7 @@ export class GameScene extends Phaser.Scene {
   private character!: CharacterDef;
   private map!: MapDef;
   private propObstacles: Array<{ x: number; y: number; r: number }> = [];
+  private ambient!: AmbientDrift;
   private fogZones: Array<{
     img: Phaser.GameObjects.Image;
     active: boolean;
@@ -89,6 +91,22 @@ export class GameScene extends Phaser.Scene {
     untilMs: number;
   }> = [];
   private fogTimerMs = 0;
+  private lavaZones: Array<{
+    img: Phaser.GameObjects.Image;
+    active: boolean;
+    untilMs: number;
+    armedAtMs: number;
+    nextTickMs: number;
+  }> = [];
+  private lavaTimerMs = 0;
+  private voidZones: Array<{
+    img: Phaser.GameObjects.Image;
+    active: boolean;
+    vx: number;
+    vy: number;
+    untilMs: number;
+  }> = [];
+  private voidTimerMs = 0;
 
   constructor() {
     super('Game');
@@ -116,6 +134,10 @@ export class GameScene extends Phaser.Scene {
     this.map = getMap(this.registry.get('selected-map') ?? 'forest');
     this.fogZones = [];
     this.fogTimerMs = HAZARDS.fogIntervalSeconds * 1000;
+    this.lavaZones = [];
+    this.lavaTimerMs = HAZARDS.lavaIntervalSeconds * 1000;
+    this.voidZones = [];
+    this.voidTimerMs = HAZARDS.voidIntervalSeconds * 1000;
     this.chestTimerMs = CHESTS.firstAtSeconds * 1000;
 
     this.physics.world.setBounds(0, 0, WORLD.width, WORLD.height);
@@ -135,6 +157,10 @@ export class GameScene extends Phaser.Scene {
     cam.setBounds(0, 0, WORLD.width, WORLD.height);
     cam.setZoom(CAMERA.zoom);
     cam.startFollow(this.player, true, CAMERA.followLerp, CAMERA.followLerp);
+    // Snap the camera onto the player now so worldView is valid this frame —
+    // the ambient layer scatters its motes across it.
+    cam.centerOn(this.player.x, this.player.y);
+    this.ambient = new AmbientDrift(this, this.map.ambient);
 
     // Perf foundation (Phase 3): pre-warmed pools + spatial hash.
     this.enemyPool = new ObjectPool<Enemy>(() => {
@@ -150,7 +176,7 @@ export class GameScene extends Phaser.Scene {
     this.particles = new ParticlePool(this);
     this.grid = new CollisionGrid<Enemy>();
     this.spawnDirector = new SpawnDirector(this, this.enemyPool, this.player, this.map);
-    this.weaponSystem = new WeaponSystem(this, this.player, this.enemyPool, this.grid, this.projectilePool);
+    this.weaponSystem = new WeaponSystem(this, this.player, this.enemyPool, this.grid, this.projectilePool, this.particles);
     this.ultimate = new UltimateSystem(
       this,
       this.player,
@@ -262,7 +288,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   override update(_time: number, delta: number): void {
-    if (this.ended) return;
+    if (this.ended) {
+      // Keep visual systems breathing through the death/victory cinematic.
+      this.explosionFx.update(delta);
+      this.damageNumbers.update(delta);
+      this.particles.update(delta);
+      this.ambient.update(delta);
+      return;
+    }
     this.elapsedMs += delta;
 
     // Survival cap reached → victory (spec §3).
@@ -274,7 +307,10 @@ export class GameScene extends Phaser.Scene {
     this.explosionFx.update(delta);
     this.damageNumbers.update(delta);
     this.particles.update(delta);
+    this.ambient.update(delta);
     this.updateFog(delta);
+    this.updateLava(delta);
+    this.updateVoid(delta);
     this.updateChests(delta);
 
     this.spawnDirector.update(delta, this.elapsedMs / 1000);
@@ -324,7 +360,21 @@ export class GameScene extends Phaser.Scene {
     const minute = this.elapsedMs / 60000;
 
     this.gemPool.acquire().spawn(x, y, enemy.xpValue, this.player);
-    if (enemy.visible) this.particles.burst(x, y, ENEMY_LOOKS[kind].color, kind === 'boss' ? 26 : 6);
+    if (enemy.visible) {
+      const color = ENEMY_LOOKS[kind].color;
+      const big = kind === 'boss' || kind === 'elite';
+      // Gut-splat circles in the enemy's hue + one additive light pop.
+      this.particles.burstFx(x, y, {
+        texture: 'p-circle_05', count: big ? 14 : 5, color,
+        scaleStart: big ? 0.16 : 0.09, scaleEnd: 0.02,
+        speedMin: 70, speedMax: big ? 260 : 190,
+      });
+      this.particles.burstFx(x, y, {
+        texture: 'p-light_01', count: 1, color: big ? 0xffffff : color, add: true,
+        scaleStart: big ? 0.55 : 0.24, scaleEnd: 0.05,
+        speedMin: 0, speedMax: 10, lifeMin: 200, lifeMax: 280,
+      });
+    }
     audio.play('enemy-death');
     enemy.despawn();
     this.enemyPool.release(enemy);
@@ -367,6 +417,12 @@ export class GameScene extends Phaser.Scene {
   private explodeExploder(x: number, y: number, blastDamage: number): void {
     const radius = ENEMY_BASE.exploder.blastRadius;
     this.explosionFx.show(x, y, radius / 40);
+    this.particles.burstFx(x, y, {
+      texture: 'p-flame_01', count: 8, add: true,
+      colors: [0xffab40, 0xff7043, 0xffe082],
+      scaleStart: 0.18, scaleEnd: 0.03, gravity: -120,
+      speedMin: 60, speedMax: 240, lifeMin: 300, lifeMax: 520,
+    });
     const dx = this.player.x - x;
     const dy = this.player.y - y;
     const reach = radius + COLLISION.playerRadius;
@@ -382,7 +438,7 @@ export class GameScene extends Phaser.Scene {
       speed: ENEMY_BASE.shooter.projectileSpeed,
       damage,
       pierce: 0,
-      texture: 'projectile-enemy',
+      texture: 'fx-enemy',
       lifetimeMs: 4000,
       mode: 'hostile',
       player: this.player,
@@ -427,7 +483,12 @@ export class GameScene extends Phaser.Scene {
 
   private openChest(x: number, y: number): void {
     audio.play('purchase');
-    this.particles.burst(x, y, 0xffd54f, 14);
+    this.particles.burstFx(x, y, {
+      texture: 'p-star_04', count: 12, add: true,
+      colors: [0xffd54f, 0xfff176, 0xffffff],
+      scaleStart: 0.14, scaleEnd: 0.02, gravity: -80,
+      speedMin: 80, speedMax: 240, lifeMin: 400, lifeMax: 700,
+    });
 
     const gold = CHESTS.minGold + Math.floor(Math.random() * (CHESTS.maxGold - CHESTS.minGold + 1));
     this.awardGold(gold);
@@ -488,6 +549,12 @@ export class GameScene extends Phaser.Scene {
     if (choices.length === 0) return; // everything maxed — nothing to offer
 
     this.levelingUp = true;
+    this.particles.burstFx(this.player.x, this.player.y, {
+      texture: 'p-star_07', count: 14, add: true,
+      colors: [0x00e676, 0x69f0ae, 0xffffff],
+      scaleStart: 0.16, scaleEnd: 0.03,
+      speedMin: 90, speedMax: 260, lifeMin: 400, lifeMax: 650,
+    });
     audio.play('level-up');
     this.inputManager.reset(); // held touch never gets a pointerup while paused
     this.scene.pause();
@@ -608,8 +675,10 @@ export class GameScene extends Phaser.Scene {
         y = 60 + Math.random() * (WORLD.height - 120);
       } while (Math.hypot(x - WORLD.width / 2, y - WORLD.height / 2) < PROPS.minDistanceFromSpawn);
       const texture = this.map.propTextures[i % this.map.propTextures.length];
-      this.add.image(x, y, texture).setDepth(4);
-      this.propObstacles.push({ x, y, r: PROPS.radius });
+      // Flat decor (flower patches) draws under everything and doesn't collide.
+      const decor = texture === 'prop-flowers';
+      this.add.image(x, y, texture).setDepth(decor ? 0.5 : 4).setScale(1.35);
+      if (!decor) this.propObstacles.push({ x, y, r: PROPS.radius });
     }
   }
 
@@ -676,6 +745,142 @@ export class GameScene extends Phaser.Scene {
     zone.img.setPosition(x, y).setAlpha(1).setVisible(true);
   }
 
+  /** Inferno hazard: lava bubbles up near the player, telegraphs, then burns. */
+  private updateLava(delta: number): void {
+    if (this.map.hazard !== 'lavaPools') return;
+
+    this.lavaTimerMs -= delta;
+    if (this.lavaTimerMs <= 0) {
+      this.lavaTimerMs += HAZARDS.lavaIntervalSeconds * 1000;
+      for (let i = 0; i < HAZARDS.lavaPerWave; i++) this.spawnLavaZone();
+    }
+
+    for (const zone of this.lavaZones) {
+      if (!zone.active) continue;
+      if (this.elapsedMs >= zone.untilMs) {
+        zone.img.setAlpha(zone.img.alpha - (delta / 1000) * 2);
+        if (zone.img.alpha <= 0) {
+          zone.active = false;
+          zone.img.setVisible(false);
+        }
+        continue;
+      }
+      const armed = this.elapsedMs >= zone.armedAtMs;
+      // Telegraph: dim glow-in; armed: pulsing full burn.
+      zone.img.setAlpha(
+        armed ? 0.7 + 0.2 * Math.sin(this.elapsedMs * 0.012) : 0.35,
+      );
+      if (!armed) continue;
+      if (this.elapsedMs >= zone.nextTickMs) {
+        zone.nextTickMs = this.elapsedMs + 500;
+        const dx = this.player.x - zone.img.x;
+        const dy = this.player.y - zone.img.y;
+        if (dx * dx + dy * dy <= HAZARDS.lavaRadius * HAZARDS.lavaRadius) {
+          this.player.takeDamage(HAZARDS.lavaDamagePerSecond / 2);
+          this.particles.burstFx(this.player.x, this.player.y, {
+            texture: 'p-flame_01', count: 3, add: true,
+            colors: [0xffab40, 0xff7043], scaleStart: 0.12, scaleEnd: 0.02,
+            gravity: -160, lifeMin: 260, lifeMax: 420,
+          });
+        }
+      }
+    }
+  }
+
+  private spawnLavaZone(): void {
+    let zone = this.lavaZones.find(z => !z.active);
+    if (!zone) {
+      zone = {
+        img: this.add.image(0, 0, 'fx-lava0').setDepth(1).setBlendMode(Phaser.BlendModes.ADD),
+        active: false, untilMs: 0, armedAtMs: 0, nextTickMs: 0,
+      };
+      this.lavaZones.push(zone);
+    }
+    // Bubble up somewhere the player might walk — near but not on them.
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 120 + Math.random() * 260;
+    const x = Phaser.Math.Clamp(this.player.x + Math.cos(angle) * dist, 60, WORLD.width - 60);
+    const y = Phaser.Math.Clamp(this.player.y + Math.sin(angle) * dist, 60, WORLD.height - 60);
+    zone.active = true;
+    zone.armedAtMs = this.elapsedMs + HAZARDS.lavaTelegraphMs;
+    zone.untilMs = this.elapsedMs + HAZARDS.lavaDurationMs;
+    zone.nextTickMs = 0;
+    zone.img
+      .setTexture(Math.random() < 0.5 ? 'fx-lava0' : 'fx-lava1')
+      .setPosition(x, y)
+      .setScale((HAZARDS.lavaRadius * 2) / 32)
+      .setAlpha(0.35)
+      .setVisible(true);
+  }
+
+  /** Astral hazard: slow gravity wells that drag the player toward their core. */
+  private updateVoid(delta: number): void {
+    if (this.map.hazard !== 'voidRifts') return;
+
+    this.voidTimerMs -= delta;
+    if (this.voidTimerMs <= 0) {
+      this.voidTimerMs += HAZARDS.voidIntervalSeconds * 1000;
+      for (let i = 0; i < HAZARDS.voidPerWave; i++) this.spawnVoidZone();
+    }
+
+    const dt = delta / 1000;
+    for (const zone of this.voidZones) {
+      if (!zone.active) continue;
+      if (this.elapsedMs >= zone.untilMs) {
+        zone.img.setAlpha(zone.img.alpha - dt * 1.5);
+        if (zone.img.alpha <= 0) {
+          zone.active = false;
+          zone.img.setVisible(false);
+        }
+        continue;
+      }
+      zone.img.x += zone.vx * dt;
+      zone.img.y += zone.vy * dt;
+      zone.img.setAlpha(0.45 + 0.15 * Math.sin(this.elapsedMs * 0.004));
+
+      const dx = zone.img.x - this.player.x;
+      const dy = zone.img.y - this.player.y;
+      const d = Math.hypot(dx, dy);
+      if (d < HAZARDS.voidRadius && d > 8) {
+        // Stronger toward the core; fight it by walking out.
+        const pull = HAZARDS.voidPullSpeed * (1 - d / HAZARDS.voidRadius);
+        this.player.setPosition(
+          this.player.x + (dx / d) * pull * dt,
+          this.player.y + (dy / d) * pull * dt,
+        );
+      }
+    }
+  }
+
+  private spawnVoidZone(): void {
+    let zone = this.voidZones.find(z => !z.active);
+    if (!zone) {
+      zone = {
+        img: this.add
+          .image(0, 0, 'fx-void')
+          .setDepth(2)
+          .setBlendMode(Phaser.BlendModes.ADD)
+          .setTint(0x9575cd),
+        active: false, vx: 0, vy: 0, untilMs: 0,
+      };
+      this.voidZones.push(zone);
+    }
+    const view = this.cameras.main.worldView;
+    const angle = Math.random() * Math.PI * 2;
+    const x = this.player.x + Math.cos(angle) * (view.width / 2);
+    const y = this.player.y + Math.sin(angle) * (view.height / 2);
+    const drift = Math.atan2(this.player.y - y, this.player.x - x);
+    zone.active = true;
+    zone.vx = Math.cos(drift) * HAZARDS.voidDriftSpeed;
+    zone.vy = Math.sin(drift) * HAZARDS.voidDriftSpeed;
+    zone.untilMs = this.elapsedMs + HAZARDS.voidDurationMs;
+    zone.img
+      .setPosition(x, y)
+      .setScale((HAZARDS.voidRadius * 2) / 32)
+      .setAlpha(0.5)
+      .setVisible(true);
+  }
+
   private refreshDebugOverlay(): void {
     if (!this.debugText.visible || this.ended) return;
     const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
@@ -705,19 +910,70 @@ export class GameScene extends Phaser.Scene {
     this.physics.pause();
     audio.stopMusic();
     audio.play(victory ? 'victory' : 'defeat');
-    if (victory) this.cameras.main.flash(600, 240, 240, 200);
-    else this.cameras.main.flash(400, 180, 30, 30);
-    this.time.delayedCall(700, () => {
-      this.scene.stop('HUD');
-      this.scene.start('GameOver', {
-        survivedSeconds,
-        kills: this.kills,
-        level: this.level,
-        victory,
-        mapId: this.map.id,
-        runGold: this.runGold,
-        bonusGold: bonus,
+
+    const goToSummary = (delayMs: number) =>
+      this.time.delayedCall(delayMs, () => {
+        this.scene.stop('HUD');
+        this.scene.start('GameOver', {
+          survivedSeconds,
+          kills: this.kills,
+          level: this.level,
+          victory,
+          mapId: this.map.id,
+          runGold: this.runGold,
+          bonusGold: bonus,
+        });
       });
+
+    if (victory) {
+      this.cameras.main.flash(600, 240, 240, 200);
+      this.particles.burstFx(this.player.x, this.player.y, {
+        texture: 'p-star_04', count: 18, add: true,
+        colors: [0xffd54f, 0x00e676, 0xffffff],
+        scaleStart: 0.16, scaleEnd: 0.03, gravity: -60,
+        speedMin: 90, speedMax: 300, lifeMin: 600, lifeMax: 1100,
+      });
+      goToSummary(1100);
+      return;
+    }
+
+    this.playDeathCinematic();
+    goToSummary(2000);
+  }
+
+  /** Defeat: the hero topples, their soul drifts up, the world closes in. */
+  private playDeathCinematic(): void {
+    const p = this.player;
+    p.anims.stop();
+    p.setTint(0x8890b8); // drained, ghostly
+
+    // Soul wisps rising from the body + one slow expanding ring.
+    this.particles.burstFx(p.x, p.y, {
+      texture: 'p-light_01', count: 10, add: true,
+      colors: [0x90caf9, 0xe3f2fd, 0xb39ddb],
+      scaleStart: 0.16, scaleEnd: 0.03, gravity: -90,
+      speedMin: 15, speedMax: 80, lifeMin: 900, lifeMax: 1600,
     });
+    this.particles.burstFx(p.x, p.y, {
+      texture: 'p-twirl_01', count: 1, color: 0xb39ddb, add: true,
+      scaleStart: 0.9, scaleEnd: 0.1, speedMin: 0, speedMax: 4,
+      lifeMin: 700, lifeMax: 750,
+    });
+
+    // Topple sideways, then fade the body out.
+    this.tweens.add({
+      targets: p,
+      angle: p.flipX ? -90 : 90,
+      y: p.y + 6,
+      duration: 650,
+      ease: 'Quad.easeIn',
+    });
+    this.tweens.add({ targets: p, alpha: 0.15, delay: 750, duration: 900 });
+
+    // Slow push-in on the body while the world fades to black.
+    const cam = this.cameras.main;
+    cam.shake(180, 0.006);
+    cam.zoomTo(CAMERA.zoom * 1.5, 1600, 'Quad.easeOut');
+    cam.fade(1900, 8, 4, 14);
   }
 }

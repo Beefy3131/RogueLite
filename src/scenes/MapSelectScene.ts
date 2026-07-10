@@ -5,8 +5,8 @@ import { saveManager } from '../systems/SaveManager';
 import { Button } from '../ui/Button';
 
 /**
- * Map picker (spec §9): preview + survival modifier; locked map shows its
- * unlock condition.
+ * Map picker (spec §9): 2×2 grid, each card previews the real ground tiles
+ * with a strip of the map's props; locked maps show their unlock condition.
  */
 export class MapSelectScene extends Phaser.Scene {
   constructor() {
@@ -16,9 +16,9 @@ export class MapSelectScene extends Phaser.Scene {
   create(): void {
     const { width, height } = GAME;
     this.add
-      .text(width / 2, 48, 'CHOOSE YOUR HUNTING GROUND', {
+      .text(width / 2, 36, 'CHOOSE YOUR HUNTING GROUND', {
         fontFamily: 'Arial, sans-serif',
-        fontSize: '32px',
+        fontSize: '30px',
         fontStyle: 'bold',
         color: UI.colors.textCss,
       })
@@ -29,52 +29,59 @@ export class MapSelectScene extends Phaser.Scene {
       unlockAll: new URLSearchParams(location.search).has('unlock'),
     };
 
-    const cardW = 380;
-    const cardH = 320;
+    const cardW = 430;
+    const cardH = 186;
+    const gapX = 18;
+    const gapY = 16;
     MAPS.forEach((def, i) => {
-      const x = width / 2 + (i === 0 ? -cardW / 2 - 14 : cardW / 2 + 14);
-      const y = height / 2 + 14;
+      const col = i % 2;
+      const row = Math.floor(i / 2);
+      const x = width / 2 + (col === 0 ? -(cardW / 2 + gapX / 2) : cardW / 2 + gapX / 2);
+      const y = 168 + row * (cardH + gapY);
       const unlocked = isMapUnlocked(def, progress);
 
       const card = this.add.container(x, y);
       const bg = this.add
         .rectangle(0, 0, cardW, cardH, 0x23234a, 1)
         .setStrokeStyle(2, unlocked ? 0x4a4a8a : 0x2a2a44);
-      // Preview: the map's palette with a few prop silhouettes.
-      const preview = this.add.rectangle(0, -cardH / 2 + 92, cardW - 24, 150, def.previewColor, 1);
+
+      // Preview: the map's actual ground tiles + a few of its props.
+      const preview = this.add
+        .tileSprite(0, -cardH / 2 + 40, cardW - 20, 64, def.groundTexture)
+        .setAlpha(unlocked ? 1 : 0.35);
       const props: Phaser.GameObjects.Image[] = [];
-      for (let p = 0; p < 6; p++) {
+      for (let p = 0; p < 5; p++) {
         const texture = def.propTextures[p % def.propTextures.length];
         props.push(
           this.add
-            .image(-150 + p * 60 + (p % 2) * 14, -cardH / 2 + 70 + (p % 3) * 34, texture)
-            .setAlpha(unlocked ? 0.9 : 0.35),
+            .image(-160 + p * 80, -cardH / 2 + 44, texture)
+            .setAlpha(unlocked ? 1 : 0.3),
         );
       }
+
       const name = this.add
-        .text(0, 12, def.name, {
+        .text(-cardW / 2 + 14, -cardH / 2 + 78, def.name, {
           fontFamily: 'Arial, sans-serif',
-          fontSize: '24px',
+          fontSize: '21px',
           fontStyle: 'bold',
           color: unlocked ? '#ffffff' : '#777788',
         })
-        .setOrigin(0.5, 0);
+        .setOrigin(0, 0);
       const tag = this.add
-        .text(0, 46, unlocked ? def.tagline : `LOCKED — ${mapUnlockText(def)}`, {
+        .text(-cardW / 2 + 14, -cardH / 2 + 106, unlocked ? def.tagline : `LOCKED — ${mapUnlockText(def)}`, {
           fontFamily: 'Arial, sans-serif',
-          fontSize: '15px',
+          fontSize: '14px',
           color: unlocked ? '#c8c8e8' : '#8888aa',
-          align: 'center',
-          wordWrap: { width: cardW - 40 },
+          wordWrap: { width: cardW - 28 },
         })
-        .setOrigin(0.5, 0);
+        .setOrigin(0, 0);
       const hazard = this.add
-        .text(0, cardH / 2 - 34, def.hazard === 'slowFog' ? 'Hazard: slowing fog' : 'Hazard: none', {
+        .text(-cardW / 2 + 14, cardH / 2 - 26, def.hazardText, {
           fontFamily: 'Arial, sans-serif',
           fontSize: '13px',
           color: def.hazard === 'none' ? '#8888aa' : '#ffab91',
         })
-        .setOrigin(0.5, 0);
+        .setOrigin(0, 0);
       card.add([bg, preview, ...props, name, tag, hazard]);
 
       if (unlocked) {
@@ -86,14 +93,13 @@ export class MapSelectScene extends Phaser.Scene {
             this.scene.start('Game');
           });
       } else {
-        preview.setFillStyle(def.previewColor, 0.4);
-        card.add(this.add.text(cardW / 2 - 14, cardH / 2 - 12, '🔒', { fontSize: '18px' }).setOrigin(1, 1));
+        card.add(this.add.text(cardW / 2 - 12, cardH / 2 - 10, '🔒', { fontSize: '18px' }).setOrigin(1, 1));
       }
     });
 
-    new Button(this, width / 2, height - 34, 'BACK', () => this.scene.start('CharacterSelect'), {
+    new Button(this, width / 2, height - 28, 'BACK', () => this.scene.start('CharacterSelect'), {
       width: 160,
-      height: 44,
+      height: 42,
       fontSize: 17,
     });
     this.input.keyboard?.on('keydown-ESC', () => this.scene.start('CharacterSelect'));

@@ -97,19 +97,18 @@ export const DOT = {
 
 /** Enemy spawn-time base stats, before time-scaling (spec §10). */
 export const ENEMY_BASE = {
-  // hp 10 (spec draft said 12) so the L1 Magic Bolt one-shots fresh swarmers:
-  // at 12 the best possible minute-one kill rate is half the spawn rate and
-  // the opener snowballs unfairly. Time-scaling puts them back to 2 hits by
-  // ~2:00, when the first upgrades have landed.
+  // "Horde tuning": individual enemies are ~20% squishier and hit ~15%
+  // softer than the original numbers, but the spawn curve runs ~25% faster —
+  // difficulty comes from volume, and every weapon feels like a scythe.
   // Small-enemy radii bumped (8/7/6/5 → 10/9/8/7): with the zoomed-out camera
   // the old bodies were so small that projectiles whiffed through visual hits.
-  swarmer: { hp: 10, damage: 6, speed: 90, xp: 1, radius: 10 },
-  runner: { hp: 8, damage: 5, speed: 160, xp: 1, radius: 9 },
-  brute: { hp: 60, damage: 14, speed: 55, xp: 2, radius: 14 },
-  bat: { hp: 6, damage: 4, speed: 130, xp: 1, radius: 8 }, // erratic weave
+  swarmer: { hp: 8, damage: 5, speed: 90, xp: 1, radius: 10 },
+  runner: { hp: 6, damage: 4, speed: 160, xp: 1, radius: 9 },
+  brute: { hp: 45, damage: 12, speed: 55, xp: 2, radius: 14 },
+  bat: { hp: 5, damage: 3, speed: 130, xp: 1, radius: 8 }, // erratic weave
   shooter: {
-    hp: 18,
-    damage: 8, // projectile damage
+    hp: 14,
+    damage: 7, // projectile damage
     speed: 70,
     xp: 2,
     radius: 9,
@@ -117,15 +116,15 @@ export const ENEMY_BASE = {
     fireIntervalSeconds: 2.5,
     projectileSpeed: 180,
   },
-  splitter: { hp: 20, damage: 6, speed: 80, xp: 2, radius: 10, minisPerSplit: 2 },
-  mini: { hp: 6, damage: 4, speed: 110, xp: 1, radius: 7 }, // splitter offspring
-  exploder: { hp: 15, damage: 20, speed: 110, xp: 1, radius: 9, blastRadius: 70 }, // damage = blast
-  ghost: { hp: 14, damage: 7, speed: 100, xp: 2, radius: 8 }, // ignores props
-  shielded: { hp: 45, damage: 10, speed: 65, xp: 3, radius: 10, frontResist: 0.7 },
-  elite: { hp: 400, damage: 18, speed: 70, xp: 5, radius: 18 },
+  splitter: { hp: 16, damage: 5, speed: 80, xp: 2, radius: 10, minisPerSplit: 2 },
+  mini: { hp: 5, damage: 3, speed: 110, xp: 1, radius: 7 }, // splitter offspring
+  exploder: { hp: 12, damage: 17, speed: 110, xp: 1, radius: 9, blastRadius: 70 }, // damage = blast
+  ghost: { hp: 11, damage: 6, speed: 100, xp: 2, radius: 8 }, // ignores props
+  shielded: { hp: 36, damage: 8, speed: 65, xp: 3, radius: 10, frontResist: 0.7 },
+  elite: { hp: 330, damage: 15, speed: 70, xp: 5, radius: 18 },
   boss: {
-    hp: 3000,
-    damage: 25,
+    hp: 2600,
+    damage: 21,
     speed: 60,
     xp: 5, // per gem in the death shower
     radius: 28,
@@ -149,30 +148,29 @@ export const SPAWN_CURVE: ReadonlyArray<{
   intervalSeconds: number;
   weights: Partial<Record<EnemyKind, number>>;
 }> = [
-  // Rows 0-1 run gentler than the spec's 0.8s baseline: with Magic Bolt L1
-  // (2 hits per swarmer) a 0.8s interval outpaces the best possible kill
-  // rate ~2.5× and snowballs before the first upgrade lands. 1.0s keeps
-  // minute one "easy" per the Phase 5 gate; the ramp catches up by minute 2.
-  /*  0 */ { intervalSeconds: 1.0, weights: { swarmer: 10 } },
-  /*  1 */ { intervalSeconds: 0.85, weights: { swarmer: 10, runner: 3 } },
-  /*  2 */ { intervalSeconds: 0.65, weights: { swarmer: 10, runner: 5, bat: 4 } },
-  /*  3 */ { intervalSeconds: 0.58, weights: { swarmer: 9, runner: 6, bat: 5, brute: 2 } },
-  /*  4 */ { intervalSeconds: 0.52, weights: { swarmer: 8, runner: 6, bat: 5, brute: 3, shooter: 2 } },
-  /*  5 */ { intervalSeconds: 0.46, weights: { swarmer: 7, runner: 6, bat: 5, brute: 4, shooter: 3 } },
-  /*  6 */ { intervalSeconds: 0.4, weights: { swarmer: 6, runner: 6, bat: 5, brute: 4, shooter: 3, splitter: 3 } },
-  /*  7 */ { intervalSeconds: 0.36, weights: { swarmer: 5, runner: 6, bat: 5, brute: 4, shooter: 3, splitter: 4, exploder: 3 } },
-  /*  8 */ { intervalSeconds: 0.32, weights: { swarmer: 4, runner: 6, bat: 5, brute: 5, shooter: 4, splitter: 4, exploder: 3, ghost: 3 } },
-  /*  9 */ { intervalSeconds: 0.3, weights: { swarmer: 4, runner: 5, bat: 5, brute: 5, shooter: 4, splitter: 4, exploder: 4, ghost: 4 } },
-  /* 10 */ { intervalSeconds: 0.27, weights: { swarmer: 3, runner: 5, bat: 4, brute: 5, shooter: 4, splitter: 5, exploder: 4, ghost: 4, shielded: 3 } },
-  /* 11 */ { intervalSeconds: 0.25, weights: { swarmer: 3, runner: 5, bat: 4, brute: 5, shooter: 4, splitter: 5, exploder: 4, ghost: 5, shielded: 4 } },
-  /* 12 */ { intervalSeconds: 0.23, weights: { swarmer: 2, runner: 4, bat: 4, brute: 6, shooter: 5, splitter: 5, exploder: 5, ghost: 5, shielded: 4 } },
-  /* 13 */ { intervalSeconds: 0.21, weights: { swarmer: 2, runner: 4, bat: 3, brute: 6, shooter: 5, splitter: 5, exploder: 5, ghost: 5, shielded: 5 } },
-  /* 14 */ { intervalSeconds: 0.2, weights: { swarmer: 1, runner: 4, bat: 3, brute: 6, shooter: 5, splitter: 5, exploder: 5, ghost: 6, shielded: 5 } },
-  /* 15 */ { intervalSeconds: 0.18, weights: { runner: 4, bat: 2, brute: 7, shooter: 5, splitter: 6, exploder: 6, ghost: 6, shielded: 6 } },
-  /* 16 */ { intervalSeconds: 0.17, weights: { runner: 4, brute: 7, shooter: 6, splitter: 6, exploder: 6, ghost: 6, shielded: 7 } },
-  /* 17 */ { intervalSeconds: 0.16, weights: { runner: 5, brute: 8, shooter: 6, splitter: 6, exploder: 7, ghost: 7, shielded: 7 } },
-  /* 18 */ { intervalSeconds: 0.15, weights: { runner: 5, brute: 8, shooter: 6, splitter: 7, exploder: 7, ghost: 7, shielded: 8 } },
-  /* 19 */ { intervalSeconds: 0.14, weights: { runner: 6, brute: 9, shooter: 7, splitter: 7, exploder: 8, ghost: 8, shielded: 9 } },
+  // Horde tuning: every row runs ~25% faster than the original curve (which
+  // was already tuned against the L1 kill rate) because individual enemies
+  // are weaker now — the screen fills up, the DPS math stays fair.
+  /*  0 */ { intervalSeconds: 0.8, weights: { swarmer: 10 } },
+  /*  1 */ { intervalSeconds: 0.66, weights: { swarmer: 10, runner: 3 } },
+  /*  2 */ { intervalSeconds: 0.5, weights: { swarmer: 10, runner: 5, bat: 4 } },
+  /*  3 */ { intervalSeconds: 0.45, weights: { swarmer: 9, runner: 6, bat: 5, brute: 2 } },
+  /*  4 */ { intervalSeconds: 0.4, weights: { swarmer: 8, runner: 6, bat: 5, brute: 3, shooter: 2 } },
+  /*  5 */ { intervalSeconds: 0.36, weights: { swarmer: 7, runner: 6, bat: 5, brute: 4, shooter: 3 } },
+  /*  6 */ { intervalSeconds: 0.31, weights: { swarmer: 6, runner: 6, bat: 5, brute: 4, shooter: 3, splitter: 3 } },
+  /*  7 */ { intervalSeconds: 0.28, weights: { swarmer: 5, runner: 6, bat: 5, brute: 4, shooter: 3, splitter: 4, exploder: 3 } },
+  /*  8 */ { intervalSeconds: 0.25, weights: { swarmer: 4, runner: 6, bat: 5, brute: 5, shooter: 4, splitter: 4, exploder: 3, ghost: 3 } },
+  /*  9 */ { intervalSeconds: 0.23, weights: { swarmer: 4, runner: 5, bat: 5, brute: 5, shooter: 4, splitter: 4, exploder: 4, ghost: 4 } },
+  /* 10 */ { intervalSeconds: 0.21, weights: { swarmer: 3, runner: 5, bat: 4, brute: 5, shooter: 4, splitter: 5, exploder: 4, ghost: 4, shielded: 3 } },
+  /* 11 */ { intervalSeconds: 0.19, weights: { swarmer: 3, runner: 5, bat: 4, brute: 5, shooter: 4, splitter: 5, exploder: 4, ghost: 5, shielded: 4 } },
+  /* 12 */ { intervalSeconds: 0.18, weights: { swarmer: 2, runner: 4, bat: 4, brute: 6, shooter: 5, splitter: 5, exploder: 5, ghost: 5, shielded: 4 } },
+  /* 13 */ { intervalSeconds: 0.16, weights: { swarmer: 2, runner: 4, bat: 3, brute: 6, shooter: 5, splitter: 5, exploder: 5, ghost: 5, shielded: 5 } },
+  /* 14 */ { intervalSeconds: 0.15, weights: { swarmer: 1, runner: 4, bat: 3, brute: 6, shooter: 5, splitter: 5, exploder: 5, ghost: 6, shielded: 5 } },
+  /* 15 */ { intervalSeconds: 0.14, weights: { runner: 4, bat: 2, brute: 7, shooter: 5, splitter: 6, exploder: 6, ghost: 6, shielded: 6 } },
+  /* 16 */ { intervalSeconds: 0.13, weights: { runner: 4, brute: 7, shooter: 6, splitter: 6, exploder: 6, ghost: 6, shielded: 7 } },
+  /* 17 */ { intervalSeconds: 0.12, weights: { runner: 5, brute: 8, shooter: 6, splitter: 6, exploder: 7, ghost: 7, shielded: 7 } },
+  /* 18 */ { intervalSeconds: 0.115, weights: { runner: 5, brute: 8, shooter: 6, splitter: 7, exploder: 7, ghost: 7, shielded: 8 } },
+  /* 19 */ { intervalSeconds: 0.11, weights: { runner: 6, brute: 9, shooter: 7, splitter: 7, exploder: 8, ghost: 8, shielded: 9 } },
 ];
 
 /** Pickup drops from elites/bosses (spec §7). Nuke + gold cache join in Phase 7 with currency. */
@@ -195,6 +193,29 @@ export const HAZARDS = {
   fogRadius: 130,
   fogSlowFactor: 0.55, // player speed multiplier while inside
   fogDriftSpeed: 25, // px/s creep
+
+  // Inferno: lava pools bubble up near the player and burn anyone standing in them.
+  lavaIntervalSeconds: 14,
+  lavaPerWave: 2,
+  lavaDurationMs: 8000,
+  lavaRadius: 85,
+  lavaDamagePerSecond: 8, // pre-armor, ticks every 0.5s
+  lavaTelegraphMs: 900, // glow-in before it hurts
+
+  // Astral Rift: slow-drifting gravity wells that pull the player toward them.
+  voidIntervalSeconds: 15,
+  voidPerWave: 2,
+  voidDurationMs: 10000,
+  voidRadius: 170, // pull field
+  voidPullSpeed: 95, // px/s toward the center at the rim, stronger at the core
+  voidDriftSpeed: 18,
+} as const;
+
+/** Ambient drifting particles per map (dark-fantasy mood layer). */
+export const AMBIENT = {
+  count: 22, // concurrent motes inside the camera view
+  minSpeed: 6,
+  maxSpeed: 22,
 } as const;
 
 /** Late-game bite without a cliff: HP ×(1 + 0.12·min), contact dmg ×(1 + 0.06·min). */
@@ -221,14 +242,14 @@ export const GEMS = {
 
 /** Hard caps that protect the frame rate (spec §2). */
 export const LIMITS = {
-  maxEnemies: 350, // recycle oldest off-screen enemy beyond this
+  maxEnemies: 450, // recycle oldest off-screen enemy beyond this (horde tuning)
   maxDamageNumbers: 40,
-  maxParticles: 120,
+  maxParticles: 220,
 } as const;
 
 /** Pool pre-warm sizes on run start (spec §2). */
 export const POOLS = {
-  enemies: 400,
+  enemies: 500,
   projectiles: 300,
   gems: 500,
   damageNumbers: 40,

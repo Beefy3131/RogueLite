@@ -7,6 +7,7 @@ import { Projectile } from '../entities/Projectile';
 import type { CollisionGrid } from './CollisionGrid';
 import { FlashPool } from './FlashPool';
 import type { ObjectPool } from './ObjectPool';
+import type { ParticlePool } from './ParticlePool';
 
 interface EquippedWeapon {
   def: WeaponDef;
@@ -47,6 +48,9 @@ export class WeaponSystem {
   private readonly equipped: EquippedWeapon[] = [];
   private readonly queryBuffer: Enemy[] = [];
   private auraSprite: Phaser.GameObjects.Image | null = null;
+  /** Two counter-rotating additive swirls layered over the aura ring. */
+  private readonly auraSwirls: Phaser.GameObjects.Image[] = [];
+  private auraTimeMs = 0;
   private readonly whipArcs: Phaser.GameObjects.Image[] = [];
   private readonly orbitShards: Phaser.GameObjects.Image[] = [];
   private orbitAngle = 0;
@@ -62,6 +66,7 @@ export class WeaponSystem {
     private readonly enemyPool: ObjectPool<Enemy>,
     private readonly grid: CollisionGrid<Enemy>,
     private readonly projectilePool: ObjectPool<Projectile>,
+    private readonly particles: ParticlePool,
   ) {
     this.explosions = new FlashPool(scene, 'explosion', 9, 3);
     this.bolts = new FlashPool(scene, 'lightning-bolt', 9, 3.5);
@@ -183,24 +188,34 @@ export class WeaponSystem {
   // --- Magic Bolt / Fireball / Venom: one projectile per k-nearest enemy ---
 
   private fireMagicBolt(stats: WeaponLevelStats): boolean {
-    return this.fireAtNearest(stats, WEAPON_BASE.magicBolt.projectileSpeed);
+    return this.fireAtNearest(stats, WEAPON_BASE.magicBolt.projectileSpeed, 'fx-bolt');
   }
 
   private fireFireball(stats: WeaponLevelStats): boolean {
     const base = WEAPON_BASE.fireball;
     // DoT ticks scale with hit damage (multiplied, no crit roll).
     const tick = stats.damage * this.player.stats.damageMult * base.burnTickFraction;
-    return this.fireAtNearest(stats, base.projectileSpeed, 'projectile-fireball', enemy =>
-      enemy.applyBurn(tick, base.burnDurationMs),
-    );
+    return this.fireAtNearest(stats, base.projectileSpeed, 'fx-fireball', enemy => {
+      enemy.applyBurn(tick, base.burnDurationMs);
+      this.particles.burstFx(enemy.x, enemy.y, {
+        texture: 'p-flame_01', count: 4, add: true,
+        colors: [0xffab40, 0xff7043], scaleStart: 0.13, scaleEnd: 0.02,
+        gravity: -140, speedMin: 30, speedMax: 120, lifeMin: 280, lifeMax: 460,
+      });
+    });
   }
 
   private fireVenom(stats: WeaponLevelStats): boolean {
     const base = WEAPON_BASE.venom;
     const tick = stats.damage * this.player.stats.damageMult * base.poisonTickFraction;
-    return this.fireAtNearest(stats, base.projectileSpeed, 'projectile-venom', enemy =>
-      enemy.applyPoison(tick, base.poisonDurationMs, base.maxStacks),
-    );
+    return this.fireAtNearest(stats, base.projectileSpeed, 'fx-venom', enemy => {
+      enemy.applyPoison(tick, base.poisonDurationMs, base.maxStacks);
+      this.particles.burstFx(enemy.x, enemy.y, {
+        texture: 'p-circle_05', count: 4, add: true,
+        colors: [0x9ccc65, 0x66bb6a], scaleStart: 0.09, scaleEnd: 0.02,
+        gravity: 90, speedMin: 20, speedMax: 100, lifeMin: 300, lifeMax: 520,
+      });
+    });
   }
 
   private fireAtNearest(
@@ -300,6 +315,16 @@ export class WeaponSystem {
   private ensureAuraSprite(): void {
     if (!this.auraSprite) {
       this.auraSprite = this.scene.add.image(this.player.x, this.player.y, 'aura').setDepth(2).setAlpha(0.6);
+      // Soft color swirls: additive, low alpha, counter-rotating — mood, not noise.
+      for (const texture of ['p-twirl_01', 'p-twirl_02']) {
+        this.auraSwirls.push(
+          this.scene.add
+            .image(this.player.x, this.player.y, texture)
+            .setDepth(2)
+            .setBlendMode(Phaser.BlendModes.ADD)
+            .setAlpha(0.2),
+        );
+      }
     }
   }
 
@@ -339,7 +364,7 @@ export class WeaponSystem {
     this.orbitAngle += Phaser.Math.DegToRad(base.rotationDegPerSec * (stats.speedScale ?? 1)) * (deltaMs / 1000);
 
     while (this.orbitShards.length < shards) {
-      this.orbitShards.push(this.scene.add.image(0, 0, 'shard').setDepth(8));
+      this.orbitShards.push(this.scene.add.image(0, 0, 'fx-shard').setDepth(8).setScale(0.7));
     }
     while (this.orbitShards.length > shards) {
       this.orbitShards.pop()!.destroy();
@@ -430,6 +455,12 @@ export class WeaponSystem {
 
   private explodeAt(x: number, y: number, radius: number, damage: number): void {
     this.explosions.show(x, y, radius / 40);
+    this.particles.burstFx(x, y, {
+      texture: 'p-flame_01', count: 7, add: true,
+      colors: [0xffab40, 0xff7043, 0xffe082],
+      scaleStart: 0.16, scaleEnd: 0.03, gravity: -100,
+      speedMin: 50, speedMax: 220, lifeMin: 300, lifeMax: 500,
+    });
     const candidates = this.grid.queryArea(x, y, radius + 16, this.queryBuffer);
     for (const enemy of candidates) {
       if (!enemy.active) continue;
@@ -495,6 +526,11 @@ export class WeaponSystem {
       const target = onScreen[idx];
       onScreen.splice(idx, 1); // distinct targets per volley
       this.bolts.show(target.x, target.y - 20, 1);
+      this.particles.burstFx(target.x, target.y, {
+        texture: 'p-spark_04', count: 5, add: true,
+        colors: [0xfff59d, 0xffffff], scaleStart: 0.1, scaleEnd: 0.02,
+        speedMin: 80, speedMax: 260, lifeMin: 200, lifeMax: 380,
+      });
       const damage = this.rollDamage(stats.damage);
       target.takeDamage(damage); // top-down: no directional source → no shield resist
       // Chain to the nearest other enemy (L5+).
@@ -533,7 +569,7 @@ export class WeaponSystem {
         speed: base.speed,
         damage: this.rollDamage(stats.damage),
         pierce: Infinity,
-        texture: 'projectile-boomerang',
+        texture: 'fx-boomerang',
         lifetimeMs: 6000, // safety net; normally despawns on return
         mode: 'boomerang',
         grid: this.grid,
@@ -549,12 +585,30 @@ export class WeaponSystem {
     if (this.auraSprite) {
       const w = this.equipped.find(e => e.def.id === 'aura');
       if (w) {
+        this.auraTimeMs += deltaMs;
         const stats = w.def.levels[w.level - 1];
         const radius = WEAPON_BASE.aura.radius * (stats.areaScale ?? 1) * this.player.stats.areaMult;
         this.auraSprite.setPosition(this.player.x, this.player.y).setScale(radius / WEAPON_BASE.aura.radius);
         if (this.auraSprite.alpha > 0.6) {
           this.auraSprite.setAlpha(Math.max(0.6, this.auraSprite.alpha - deltaMs / 250));
         }
+        // Swirls: slow counter-rotation + a gentle green→teal→violet hue drift.
+        const t = this.auraTimeMs;
+        const hue = 0.38 + 0.14 * Math.sin(t * 0.0005);
+        const tint = Phaser.Display.Color.HSVToRGB(hue, 0.7, 1).color;
+        const swirlScale = (radius * 2) / 96;
+        this.auraSwirls[0]
+          ?.setPosition(this.player.x, this.player.y)
+          .setRotation(t * 0.0009)
+          .setScale(swirlScale)
+          .setTint(tint)
+          .setAlpha(0.16 + 0.06 * Math.sin(t * 0.002));
+        this.auraSwirls[1]
+          ?.setPosition(this.player.x, this.player.y)
+          .setRotation(-t * 0.0006)
+          .setScale(swirlScale * 0.72)
+          .setTint(tint)
+          .setAlpha(0.14 + 0.05 * Math.sin(t * 0.0016 + 2));
       }
     }
     for (const arc of this.whipArcs) {

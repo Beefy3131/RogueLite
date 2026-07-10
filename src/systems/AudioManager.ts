@@ -23,6 +23,35 @@ const THROTTLE_MS: Partial<Record<SfxKey, number>> = {
 };
 
 /**
+ * Real audio samples (Kenney CC0, public/assets/audio/sfx). Keys listed here
+ * play a random variant instead of their synth body once decoded; everything
+ * else keeps the synth. Missing/undecoded files silently fall back to synth.
+ */
+const SFX_SAMPLES: Partial<Record<SfxKey, { files: string[]; gain: number; pitchJitter: number }>> = {
+  click: { files: ['sfx-click'], gain: 0.35, pitchJitter: 0.05 },
+  'enemy-death': { files: ['sfx-squish0', 'sfx-squish1', 'sfx-squish2'], gain: 0.5, pitchJitter: 0.25 },
+  'player-hurt': { files: ['sfx-punch'], gain: 0.65, pitchJitter: 0.1 },
+  purchase: { files: ['sfx-coins'], gain: 0.6, pitchJitter: 0.08 },
+  'boss-spawn': { files: ['sfx-bell'], gain: 0.75, pitchJitter: 0 },
+};
+
+/** All fetchable audio: sample name → URL (relative to the site root). */
+const AUDIO_FILES: Record<string, string> = {
+  'sfx-click': 'assets/audio/sfx/sfx-click.ogg',
+  'sfx-squish0': 'assets/audio/sfx/sfx-squish0.ogg',
+  'sfx-squish1': 'assets/audio/sfx/sfx-squish1.ogg',
+  'sfx-squish2': 'assets/audio/sfx/sfx-squish2.ogg',
+  'sfx-punch': 'assets/audio/sfx/sfx-punch.ogg',
+  'sfx-coins': 'assets/audio/sfx/sfx-coins.ogg',
+  'sfx-bell': 'assets/audio/sfx/sfx-bell.ogg',
+  'music-menu': 'assets/audio/music-menu.mp3',
+  'music-forest': 'assets/audio/music-forest.mp3',
+  'music-graveyard': 'assets/audio/music-graveyard.ogg',
+  'music-inferno': 'assets/audio/music-inferno.mp3',
+  'music-astral': 'assets/audio/music-astral.ogg',
+};
+
+/**
  * Master/SFX/music mixer with persisted volumes (spec §14). All sounds are
  * WebAudio-synthesized placeholders — zero asset payload, fully offline —
  * behind named hooks (`play('enemy-death')`), so real audio files can replace
@@ -35,7 +64,37 @@ export class AudioManager {
   private musicGain!: GainNode;
   private readonly lastPlayed = new Map<SfxKey, number>();
   private musicNodes: AudioNode[] = [];
+  private readonly buffers = new Map<string, AudioBuffer>();
+  private loadKicked = false;
+  private musicSource: AudioBufferSourceNode | null = null;
+  private currentMusicId: string | null = null;
   muted = false;
+
+  /**
+   * Fetch + decode all real audio in the background (idempotent). Called from
+   * PreloadScene; anything still undecoded when needed falls back to synth,
+   * and the music upgrades itself mid-track once its file lands.
+   */
+  preloadFiles(): void {
+    if (this.loadKicked || !this.ensureCtx()) return;
+    this.loadKicked = true;
+    for (const [name, url] of Object.entries(AUDIO_FILES)) {
+      fetch(url)
+        .then(r => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${r.status}`))))
+        .then(data => this.ctx!.decodeAudioData(data))
+        .then(buffer => {
+          this.buffers.set(name, buffer);
+          // If this track is what the synth drone is currently standing in
+          // for, swap to the real thing.
+          if (name === `music-${this.currentMusicId}` && this.musicNodes.length > 0) {
+            const id = this.currentMusicId!;
+            this.currentMusicId = null; // force restart
+            this.playMusic(id);
+          }
+        })
+        .catch(err => console.warn(`[audio] failed to load ${name}:`, err));
+    }
+  }
 
   /** Browsers gate AudioContext behind a user gesture — resume on first input. */
   attachUnlock(): void {
@@ -95,6 +154,24 @@ export class AudioManager {
     if (throttle && now - (this.lastPlayed.get(key) ?? -1e9) < throttle) return;
     this.lastPlayed.set(key, now);
 
+    // Real sample when decoded — synth body below otherwise.
+    const sample = SFX_SAMPLES[key];
+    if (sample) {
+      const name = sample.files[(Math.random() * sample.files.length) | 0];
+      const buffer = this.buffers.get(name);
+      if (buffer) {
+        const src = this.ctx!.createBufferSource();
+        src.buffer = buffer;
+        src.playbackRate.value = 1 + (Math.random() * 2 - 1) * sample.pitchJitter;
+        const g = this.ctx!.createGain();
+        g.gain.value = sample.gain;
+        src.connect(g);
+        g.connect(this.sfxGain);
+        src.start();
+        return;
+      }
+    }
+
     const rnd = Math.random();
     switch (key) {
       case 'click':
@@ -151,10 +228,32 @@ export class AudioManager {
     }
   }
 
-  /** Per-map ambient drone (spec §14: BGM per map, looped). */
+  /**
+   * Per-map music (spec §14): real looped tracks (OpenGameArt, see CREDITS)
+   * once decoded; the synth drone stands in before that and swaps over
+   * automatically when the file lands.
+   */
   playMusic(mapId: string): void {
     if (!this.ensureCtx()) return;
+    if (this.currentMusicId === mapId && this.musicPlaying) return; // already on
     this.stopMusic();
+    this.currentMusicId = mapId;
+
+    const buffer = this.buffers.get(`music-${mapId}`);
+    if (buffer) {
+      const src = this.ctx!.createBufferSource();
+      src.buffer = buffer;
+      src.loop = true;
+      src.connect(this.musicGain);
+      src.start();
+      this.musicSource = src;
+      return;
+    }
+    this.startSynthDrone(mapId);
+  }
+
+  /** WebAudio drone fallback — plays until (or unless) the real track decodes. */
+  private startSynthDrone(mapId: string): void {
     const ctx = this.ctx!;
     const root = mapId === 'graveyard' ? 87.31 : 110; // F2 (dark) vs A2 (warm)
 
@@ -192,6 +291,15 @@ export class AudioManager {
   }
 
   stopMusic(): void {
+    if (this.musicSource) {
+      try {
+        this.musicSource.stop();
+        this.musicSource.disconnect();
+      } catch {
+        /* already stopped */
+      }
+      this.musicSource = null;
+    }
     for (const node of this.musicNodes) {
       try {
         if (node instanceof OscillatorNode) node.stop();
@@ -201,10 +309,11 @@ export class AudioManager {
       }
     }
     this.musicNodes = [];
+    this.currentMusicId = null;
   }
 
   get musicPlaying(): boolean {
-    return this.musicNodes.length > 0;
+    return this.musicNodes.length > 0 || this.musicSource !== null;
   }
 
   private tone(
