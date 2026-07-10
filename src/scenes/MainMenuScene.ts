@@ -59,5 +59,19 @@ export class MainMenuScene extends Phaser.Scene {
         color: UI.colors.dimCss,
       })
       .setOrigin(1, 1);
+
+    // Credits link (CC-BY music requires in-product attribution).
+    const credits = this.add
+      .text(8, height - 8, 'CREDITS', {
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '12px',
+        color: UI.colors.dimCss,
+      })
+      .setOrigin(0, 1);
+    credits
+      .setInteractive({ useHandCursor: true })
+      .on('pointerover', () => credits.setColor(UI.colors.accentCss))
+      .on('pointerout', () => credits.setColor(UI.colors.dimCss))
+      .on('pointerup', () => this.scene.start('Credits'));
   }
 }

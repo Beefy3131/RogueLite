@@ -74,6 +74,8 @@ export class GameScene extends Phaser.Scene {
   private readonly queryBuffer: Enemy[] = [];
   private readonly passiveLevels = new Map<string, number>();
   private ground!: Phaser.GameObjects.TileSprite;
+  /** Ground texture tile size — tilePosition wraps at this (mobile UV precision). */
+  private groundTileW = 128;
   private chestTimerMs = 0;
   private elapsedMs = 0;
   private ended = false;
@@ -142,12 +144,19 @@ export class GameScene extends Phaser.Scene {
 
     this.physics.world.setBounds(0, 0, WORLD.width, WORLD.height);
 
-    // World-sized (not screen-space): screen-space objects get scaled by the
-    // camera zoom, which would leave uncovered borders when zoomed out.
+    // Screen-space tile sprite sized to the zoomed-out view, scrolled by
+    // wrapping tilePosition each frame. A world-sized (4000×4000) TileSprite
+    // renders fine on desktop but garbles on mobile GPUs: their mediump
+    // fragment shaders lose sub-texel precision at large repeating UVs.
+    // Keeping the quad screen-sized and the tile offset wrapped (% texture
+    // size) keeps UVs tiny everywhere in the world.
+    const viewW = GAME.width / CAMERA.zoom;
+    const viewH = GAME.height / CAMERA.zoom;
     this.ground = this.add
-      .tileSprite(0, 0, WORLD.width, WORLD.height, this.map.groundTexture)
-      .setOrigin(0)
+      .tileSprite(GAME.width / 2, GAME.height / 2, viewW, viewH, this.map.groundTexture)
+      .setScrollFactor(0)
       .setDepth(-1);
+    this.groundTileW = (this.textures.get(this.map.groundTexture).getSourceImage() as HTMLImageElement).width || 128;
 
     this.inputManager = new InputManager(this);
     this.player = new Player(this, WORLD.width / 2, WORLD.height / 2, this.inputManager, this.character);
@@ -204,6 +213,7 @@ export class GameScene extends Phaser.Scene {
       'damage-dealt',
       'boss-spawned',
       'ult-pressed',
+      'pause-pressed',
     ]) {
       this.events.off(ev);
     }
@@ -276,15 +286,16 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-T', () => this.spawnDirector.stressSpawn(300));
     this.time.addEvent({ delay: 250, loop: true, callback: () => this.refreshDebugOverlay() });
 
-    // Pause (spec §12: Esc or P).
+    // Pause (spec §12: Esc or P, plus the HUD button on touch).
     const openPause = () => {
-      if (this.ended || this.levelingUp) return;
+      if (this.ended || this.levelingUp || this.scene.isPaused()) return;
       this.inputManager.reset(); // held touch never gets a pointerup while paused
       this.scene.pause();
       this.scene.launch('Pause');
     };
     this.input.keyboard?.on('keydown-ESC', openPause);
     this.input.keyboard?.on('keydown-P', openPause);
+    this.events.on('pause-pressed', openPause);
   }
 
   override update(_time: number, delta: number): void {
@@ -297,6 +308,11 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.elapsedMs += delta;
+
+    // Scroll the screen-space ground by wrapping its tile offset — the wrap
+    // (% texture size) is what keeps UVs mobile-GPU-precision-safe.
+    const cam = this.cameras.main;
+    this.ground.setTilePosition(cam.scrollX % this.groundTileW, cam.scrollY % this.groundTileW);
 
     // Survival cap reached → victory (spec §3).
     if (this.elapsedMs >= RUN.durationSeconds * 1000) {

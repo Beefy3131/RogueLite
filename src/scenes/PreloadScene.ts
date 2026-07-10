@@ -100,12 +100,13 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   create(): void {
-    // Crisp pixel art: nearest-neighbor for all pixel-art sources.
-    // (Kenney particles stay linear — they're soft glows.)
+    // Crisp pixel art (nearest-neighbor) only for art that's scaled UP: the
+    // dungeon sheet sprites and projectile fx. Grounds and props render at or
+    // below 1:1 on small screens — NEAREST there shimmers/aliases badly on
+    // mobile, so they keep the default LINEAR filtering.
     const pixelKeys = [
       'dungeon',
-      'ground-forest', 'ground-graveyard', 'ground-inferno', 'ground-astral',
-      ...Object.keys(this.textures.list).filter(k => k.startsWith('prop-') || k.startsWith('fx-')),
+      ...Object.keys(this.textures.list).filter(k => k.startsWith('fx-')),
     ];
     for (const key of pixelKeys) {
       if (this.textures.exists(key)) {

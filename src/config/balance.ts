@@ -28,6 +28,8 @@ export const JOYSTICK = {
   radius: 60, // px drag range mapping to full speed
   baseAlpha: 0.35,
   thumbAlpha: 0.55,
+  /** Touches above this screen Y belong to the HUD (bars/timer/pause), not the stick. */
+  excludeTopPx: 64,
 } as const;
 
 /** Run rules. */

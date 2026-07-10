@@ -65,6 +65,25 @@ export class HUDScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
+    // Pause button beside the timer — touch users have no Esc key. 44px
+    // diameter meets the minimum tap target (spec §13).
+    const pauseBg = this.add
+      .circle(width / 2 + 82, 34, UI.minTapTargetPx / 2, 0x23234a, 0.85)
+      .setStrokeStyle(2, 0x4a4a8a);
+    this.add
+      .text(pauseBg.x, pauseBg.y, '❚❚', {
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: UI.colors.textCss,
+      })
+      .setOrigin(0.5);
+    pauseBg
+      .setInteractive({ useHandCursor: true })
+      .on('pointerover', () => pauseBg.setStrokeStyle(2, UI.colors.accent))
+      .on('pointerout', () => pauseBg.setStrokeStyle(2, 0x4a4a8a))
+      .on('pointerdown', () => this.scene.get('Game').events.emit('pause-pressed'));
+
     this.killsText = this.add
       .text(width - 16, 26, 'Kills 0', {
         fontFamily: 'Arial, sans-serif',

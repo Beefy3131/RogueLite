@@ -60,6 +60,8 @@ export class VirtualJoystick {
     ) {
       return;
     }
+    // Top strip is HUD (bars, timer, pause button) — don't start a stick there.
+    if (pointer.y < JOYSTICK.excludeTopPx) return;
     this.isActive = true;
     this.pointerId = pointer.id;
     this.downX = pointer.x;

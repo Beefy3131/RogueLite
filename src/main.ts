@@ -12,6 +12,7 @@ import { HUDScene } from './scenes/HUDScene';
 import { LevelUpScene } from './scenes/LevelUpScene';
 import { PauseScene } from './scenes/PauseScene';
 import { GameOverScene } from './scenes/GameOverScene';
+import { CreditsScene } from './scenes/CreditsScene';
 import { SettingsScene } from './scenes/SettingsScene';
 import { ShopScene } from './scenes/ShopScene';
 import { audio } from './systems/AudioManager';
@@ -52,6 +53,7 @@ const game = new Phaser.Game({
     GameOverScene,
     ShopScene,
     SettingsScene,
+    CreditsScene,
   ],
 });
 
